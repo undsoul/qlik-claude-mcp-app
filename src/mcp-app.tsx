@@ -11,7 +11,7 @@ import { Chart, registerables } from "chart.js";
 import {
   Bot, AppWindow, Rocket, CheckCircle, AlertTriangle, ChevronRight,
   ExternalLink, FolderOpen, Database, FlaskConical, Bell, Zap, RefreshCw,
-  FileText, Search, File, Layers
+  FileText, Search, File, Layers, XCircle, Clock, Timer, MoreVertical, GitBranch, Share2
 } from "lucide-react";
 import "./global.css";
 
@@ -181,6 +181,51 @@ function ErrorView({ message }: { message: string }) {
   );
 }
 
+// ============ ITEM MENU (3-dot) ============
+function ItemMenu({ item, sendAction }: { item: { id: string; name: string; resourceType?: string }; sendAction: (action: string, context: Record<string, string>) => void }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const handleAction = (action: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    sendAction(action, { itemId: item.id, itemName: item.name, resourceType: item.resourceType || "app" });
+  };
+
+  return (
+    <div className="item-menu" ref={menuRef}>
+      <button
+        className="item-menu-trigger"
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        title="More options"
+      >
+        <MoreVertical size={16} />
+      </button>
+      {open && (
+        <div className="item-menu-dropdown">
+          <button className="item-menu-option" onClick={(e) => handleAction("Show data lineage for this item", e)}>
+            <GitBranch size={14} /> View Lineage
+          </button>
+          <button className="item-menu-option" onClick={(e) => handleAction("Show impact analysis for this item", e)}>
+            <Share2 size={14} /> Impact Analysis
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ErrorCard({ data }: { data: any }) {
   // Parse error message to extract useful info
   const parseError = (msg: string) => {
@@ -239,15 +284,16 @@ function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (n
   if (!data) return null;
 
   const views: Record<string, React.ReactNode> = {
-    "apps": <AppsGrid data={data} callTool={callTool} />,
+    "apps": <AppsGrid data={data} callTool={callTool} sendAction={sendAction} />,
     "app-detail": <AppDetail data={data} sendAction={sendAction} />,
     "spaces": <SpacesGrid data={data} callTool={callTool} />,
-    "space-detail": <SpaceDetail data={data} callTool={callTool} />,
+    "space-detail": <SpaceDetail data={data} callTool={callTool} sendAction={sendAction} />,
     "users": <UsersGrid data={data} callTool={callTool} />,
     "user-detail": <UserDetail data={data} />,
     "reloads": <ReloadsTimeline data={data} sendAction={sendAction} />,
     "reload-triggered": <ActionSuccess title="Reload Started" data={data} />,
     "reload-status": <ReloadStatus data={data} />,
+    "reload-detail": <ReloadDetail data={data} />,
     "reload-cancelled": <ActionSuccess title="Reload Cancelled" data={data} />,
     "automations": <AutomationsGrid data={data} callTool={callTool} />,
     "automation-detail": <AutomationDetail data={data} sendAction={sendAction} />,
@@ -264,9 +310,9 @@ function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (n
     "experiments": <ExperimentsGrid data={data} callTool={callTool} />,
     "experiment-detail": <ExperimentDetail data={data} />,
     "deployments": <DeploymentsGrid data={data} />,
-    "lineage": <LineageView data={data} />,
+    "lineage": <LineageView data={data} sendAction={sendAction} />,
     "app-lineage": <AppLineageView data={data} />,
-    "datasets": <DatasetsGrid data={data} callTool={callTool} />,
+    "datasets": <DatasetsGrid data={data} callTool={callTool} sendAction={sendAction} />,
     "dataset-detail": <DatasetDetail data={data} sendAction={sendAction} />,
     "tenant": <TenantView data={data} />,
     "license": <LicenseView data={data} />,
@@ -284,7 +330,7 @@ function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (n
 }
 
 // ============ APPS ============
-function AppsGrid({ data, callTool }: { data: any; callTool: any }) {
+function AppsGrid({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context: Record<string, string>) => void }) {
   const [filter, setFilter] = useState("");
   const [sortBy, setSortBy] = useState("-updatedAt");
 
@@ -366,13 +412,16 @@ function AppsGrid({ data, callTool }: { data: any; callTool: any }) {
           {pagination.items.map((app: any) => {
             const { tool, type } = getToolAndType(app);
             return (
-              <button key={app.id} className="result-row" onClick={() => callTool(tool, { appId: app.id, datasetId: app.id, automationId: app.id }, { name: app.name, id: app.id, type })}>
-                <span className="result-icon">{getIcon(app.resourceType)}</span>
-                <span className="result-name">{app.name}</span>
-                {app.resourceType && <span className="result-meta">{app.resourceType}</span>}
-                <span className="result-date">{formatDate(app.updatedAt).split(',')[0]}</span>
-                <span className="result-arrow"><ChevronRight size={16} /></span>
-              </button>
+              <div key={app.id} className="result-row-wrapper">
+                <button className="result-row" onClick={() => callTool(tool, { appId: app.id, datasetId: app.id, automationId: app.id }, { name: app.name, id: app.id, type })}>
+                  <span className="result-icon">{getIcon(app.resourceType)}</span>
+                  <span className="result-name">{app.name}</span>
+                  {app.resourceType && <span className="result-meta">{app.resourceType}</span>}
+                  <span className="result-date">{formatDate(app.updatedAt).split(',')[0]}</span>
+                  <span className="result-arrow"><ChevronRight size={16} /></span>
+                </button>
+                <ItemMenu item={{ id: app.id, name: app.name, resourceType: app.resourceType || "app" }} sendAction={sendAction} />
+              </div>
             );
           })}
         </div>
@@ -581,7 +630,7 @@ function SpacesGrid({ data, callTool }: { data: any; callTool: any }) {
   );
 }
 
-function SpaceDetail({ data, callTool }: { data: any; callTool: any }) {
+function SpaceDetail({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context: Record<string, string>) => void }) {
   const [filter, setFilter] = useState("");
   const [sortBy, setSortBy] = useState("-updatedAt");
   const spaceType = data.spaceType || "shared";
@@ -670,13 +719,16 @@ function SpaceDetail({ data, callTool }: { data: any; callTool: any }) {
           {pagination.items.map((item: any) => {
             const { tool, type } = getToolAndType(item);
             return (
-              <button key={item.id} className="result-row" onClick={() => callTool(tool, { appId: item.id, datasetId: item.id, automationId: item.id }, { name: item.name, id: item.id, type })}>
-                <span className="result-icon">{getIcon(item.resourceType)}</span>
-                <span className="result-name">{item.name}</span>
-                {item.resourceType && <span className="result-meta">{item.resourceType}</span>}
-                <span className="result-date">{formatDate(item.updatedAt).split(',')[0]}</span>
-                <span className="result-arrow"><ChevronRight size={16} /></span>
-              </button>
+              <div key={item.id} className="result-row-wrapper">
+                <button className="result-row" onClick={() => callTool(tool, { appId: item.id, datasetId: item.id, automationId: item.id }, { name: item.name, id: item.id, type })}>
+                  <span className="result-icon">{getIcon(item.resourceType)}</span>
+                  <span className="result-name">{item.name}</span>
+                  {item.resourceType && <span className="result-meta">{item.resourceType}</span>}
+                  <span className="result-date">{formatDate(item.updatedAt).split(',')[0]}</span>
+                  <span className="result-arrow"><ChevronRight size={16} /></span>
+                </button>
+                <ItemMenu item={{ id: item.id, name: item.name, resourceType: item.resourceType || "app" }} sendAction={sendAction} />
+              </div>
             );
           })}
         </div>
@@ -728,33 +780,76 @@ function UserDetail({ data }: { data: any }) {
 
 // ============ RELOADS ============
 function ReloadsTimeline({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
-  const pagination = usePagination(data.reloads || []);
+  const pagination = usePagination(data.reloads || [], 10);
+
+  const getStatusIcon = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "succeeded": return <CheckCircle size={16} />;
+      case "failed": return <XCircle size={16} />;
+      case "running": return <RefreshCw size={16} className="spinning" />;
+      case "queued": return <Clock size={16} />;
+      default: return <RefreshCw size={16} />;
+    }
+  };
+
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+    const mins = Math.floor(ms / 60000);
+    const secs = Math.round((ms % 60000) / 1000);
+    return `${mins}m ${secs}s`;
+  };
 
   return (
-    <Card header={{ label: "History", title: `${data.reloads?.length || 0} Reloads`, gradient: "orange" }}>
+    <div className="reload-history-panel">
+      <div className="reload-history-header">
+        <div className="reload-history-title">
+          <RefreshCw size={18} />
+          <span>Reload History</span>
+        </div>
+        <span className="reload-count">{data.reloads?.length || 0} total</span>
+      </div>
       {pagination.items.length === 0 ? (
         <div className="empty-state">No reloads found</div>
       ) : (
-        <div className="timeline">
+        <div className="reload-list">
           {pagination.items.map((reload: any) => (
-            <div key={reload.id} className={`timeline-item ${reload.status.toLowerCase()}`}>
-              <div className={`tl-icon status-${reload.status.toLowerCase()}`}><RefreshCw size={14} /></div>
-              <div className="tl-content">
-                <div className="tl-title">{reload.status}</div>
-                <div className="tl-time">{formatDate(reload.startTime)}</div>
-                {reload.duration && <div className="tl-duration">{Math.round(reload.duration / 1000)}s</div>}
+            <div key={reload.id} className={`reload-row status-${reload.status.toLowerCase()}`}>
+              <div className={`reload-status-icon status-${reload.status.toLowerCase()}`}>
+                {getStatusIcon(reload.status)}
               </div>
-              {reload.status === "RUNNING" && (
-                <button className="btn-icon btn-cancel" onClick={() => sendAction("Cancel this reload", { reloadId: reload.id })}>
-                  Cancel
+              <div className="reload-info">
+                <div className="reload-status-text">{reload.status}</div>
+                <div className="reload-time">{formatDate(reload.startTime)}</div>
+              </div>
+              <div className="reload-meta">
+                {reload.duration && (
+                  <span className="reload-duration">
+                    <Timer size={12} /> {formatDuration(reload.duration)}
+                  </span>
+                )}
+                {reload.partial && <span className="reload-badge partial">Partial</span>}
+              </div>
+              <div className="reload-actions">
+                <button
+                  className="btn-view-log"
+                  onClick={() => sendAction("Show me the reload log and details", { reloadId: reload.id })}
+                  title="View reload log"
+                >
+                  <FileText size={14} /> Log
                 </button>
-              )}
+                {reload.status === "RUNNING" && (
+                  <button className="btn-cancel-small" onClick={() => sendAction("Cancel this reload", { reloadId: reload.id })}>
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
       )}
-      <Pagination {...pagination} />
-    </Card>
+      {pagination.totalPages > 1 && <Pagination {...pagination} />}
+    </div>
   );
 }
 
@@ -768,6 +863,74 @@ function ReloadStatus({ data }: { data: any }) {
         <Stat label="Duration" value={data.duration ? `${Math.round(data.duration / 1000)}s` : "In progress"} />
       </div>
     </Card>
+  );
+}
+
+function ReloadDetail({ data }: { data: any }) {
+  const statusGradient = data.status === "SUCCEEDED" ? "green" : data.status === "FAILED" ? "red" : "orange";
+
+  return (
+    <div className="reload-detail-panel">
+      <div className={`reload-detail-header gradient-${statusGradient}`}>
+        <div className="reload-detail-status">
+          {data.status === "SUCCEEDED" ? <CheckCircle size={24} /> :
+           data.status === "FAILED" ? <XCircle size={24} /> :
+           <RefreshCw size={24} className={data.status === "RUNNING" ? "spinning" : ""} />}
+          <span>{data.status}</span>
+        </div>
+        <div className="reload-detail-meta">
+          {data.startTime && <span>{formatDate(data.startTime)}</span>}
+          {data.historyLink && (
+            <a href={data.historyLink} target="_blank" rel="noopener noreferrer" className="btn-history-link">
+              <ExternalLink size={14} /> View in Qlik
+            </a>
+          )}
+        </div>
+      </div>
+      <div className="reload-detail-info">
+        <div className="reload-detail-row">
+          <span className="label">Reload ID</span>
+          <span className="value mono">{data.id}</span>
+        </div>
+        <div className="reload-detail-row">
+          <span className="label">App ID</span>
+          <span className="value mono">{data.appId}</span>
+        </div>
+        {data.endTime && (
+          <div className="reload-detail-row">
+            <span className="label">Ended</span>
+            <span className="value">{formatDate(data.endTime)}</span>
+          </div>
+        )}
+        {data.duration && (
+          <div className="reload-detail-row">
+            <span className="label">Duration</span>
+            <span className="value">{Math.round(data.duration / 1000)}s</span>
+          </div>
+        )}
+        {data.reloadType && (
+          <div className="reload-detail-row">
+            <span className="label">Type</span>
+            <span className="value">{data.reloadType}</span>
+          </div>
+        )}
+        {data.errorMessage && (
+          <div className="reload-detail-row error-row">
+            <span className="label">Error</span>
+            <span className="value error-text">{data.errorMessage}</span>
+          </div>
+        )}
+      </div>
+      {data.log && (
+        <div className="reload-log-section">
+          <div className="reload-log-header">
+            <FileText size={16} />
+            <span>Reload Log</span>
+          </div>
+          <pre className="reload-log-content">{data.log}</pre>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1110,51 +1273,54 @@ function ChartView({ data }: { data: any }) {
     const chartType = data.chartType?.toLowerCase() || "bar";
     const isBarType = chartType.includes("bar") || chartType.includes("column") || chartType.includes("histogram");
     const isLineType = chartType.includes("line") || chartType.includes("trend") || chartType.includes("area");
+    const isScatterType = chartType.includes("scatter") || chartType.includes("point");
+    const hasSecondMeasure = data.values2?.length > 0;
 
     // Sample data based on chart type
     let labels = data.labels;
     let values = data.values;
-    const maxPoints = isBarType ? 30 : isLineType ? 100 : 50; // Fewer bars, more line points
+    let values2 = data.values2 || [];
+    const maxPoints = isBarType ? 30 : isLineType ? 100 : 50;
 
-    if (labels.length > maxPoints) {
-      // For bars: take top N by value, for lines: sample evenly
+    if (labels.length > maxPoints && !isScatterType) {
       if (isBarType) {
-        // Sort by value and take top N
-        const paired = labels.map((l: string, i: number) => ({ label: l, value: values[i] }));
+        const paired = labels.map((l: string, i: number) => ({ label: l, value: values[i], value2: values2[i] }));
         paired.sort((a: any, b: any) => b.value - a.value);
         const top = paired.slice(0, maxPoints);
         labels = top.map((p: any) => p.label);
         values = top.map((p: any) => p.value);
+        values2 = top.map((p: any) => p.value2);
       } else {
-        // Sample evenly for line charts
         const step = Math.ceil(labels.length / maxPoints);
         labels = labels.filter((_: string, i: number) => i % step === 0);
         values = values.filter((_: number, i: number) => i % step === 0);
+        values2 = values2.filter((_: number, i: number) => i % step === 0);
       }
     }
 
-    // Map Qlik chart types to Chart.js - respect Qlik's recommendation
-    let type: "bar" | "line" | "pie" | "doughnut" | "polarArea" | "radar" = "bar";
-    if (chartType.includes("line") || chartType.includes("trend") || chartType.includes("combo")) {
+    // Map Qlik chart types to Chart.js
+    let type: "bar" | "line" | "pie" | "doughnut" | "polarArea" | "radar" | "scatter" = "bar";
+    if (isScatterType && hasSecondMeasure) {
+      type = "scatter"; // True scatter plot with 2 measures
+    } else if (chartType.includes("line") || chartType.includes("trend") || chartType.includes("combo")) {
       type = "line";
     } else if (chartType.includes("pie")) {
       type = "pie";
     } else if (chartType.includes("donut") || chartType.includes("ring")) {
       type = "doughnut";
     } else if (chartType.includes("treemap") || chartType.includes("tree")) {
-      type = "doughnut"; // Treemap → doughnut as best alternative
+      type = "doughnut";
     } else if (chartType.includes("radar") || chartType.includes("spider")) {
       type = "radar";
     } else if (chartType.includes("polar") || chartType.includes("rose")) {
       type = "polarArea";
     } else if (chartType.includes("area")) {
-      type = "line"; // Area is line with fill
-    } else if (chartType.includes("scatter") || chartType.includes("point")) {
-      type = "line"; // Use line with only points
+      type = "line";
+    } else if (isScatterType) {
+      type = "line"; // Fallback for scatter without 2 measures
     } else if (chartType.includes("bar") || chartType.includes("column") || chartType.includes("histogram")) {
       type = "bar";
     }
-    // No more auto-conversion - respect Qlik's chart type recommendation
 
     // Beautiful gradient for area fill
     const gradient = ctx.createLinearGradient(0, 0, 0, 350);
@@ -1162,11 +1328,20 @@ function ChartView({ data }: { data: any }) {
     gradient.addColorStop(0.5, "rgba(84, 168, 96, 0.2)");
     gradient.addColorStop(1, "rgba(84, 168, 96, 0.02)");
 
-    // Rich color palette for pie/doughnut/polar/radar
+    // Rich color palette for pie/doughnut/polar/radar (40 distinct colors)
     const richColors = [
+      // Primary vibrant
       "#54a860", "#5b8def", "#f97316", "#ec4899", "#8b5cf6",
       "#06b6d4", "#fbbf24", "#22c55e", "#f43f5e", "#6366f1",
-      "#14b8a6", "#a855f7", "#f59e0b", "#3b82f6", "#ef4444"
+      // Secondary
+      "#14b8a6", "#a855f7", "#f59e0b", "#3b82f6", "#ef4444",
+      "#10b981", "#8b5cf6", "#f472b6", "#38bdf8", "#fb923c",
+      // Tertiary
+      "#84cc16", "#e879f9", "#22d3ee", "#facc15", "#a3e635",
+      "#c084fc", "#2dd4bf", "#fca5a1", "#818cf8", "#34d399",
+      // Extended
+      "#d946ef", "#0ea5e9", "#eab308", "#f87171", "#a78bfa",
+      "#4ade80", "#fb7185", "#60a5fa", "#fcd34d", "#c4b5fd",
     ];
     const richColorsAlpha = richColors.map(c => c + "cc"); // 80% opacity
 
@@ -1182,13 +1357,27 @@ function ChartView({ data }: { data: any }) {
     const isRadar = type === "radar";
     const isLine = type === "line";
     const isBar = type === "bar";
+    const isScatter = type === "scatter";
+
+    // Get measure names for axis labels
+    const measureNames = data.measureNames || [];
+    const xAxisLabel = measureNames[0] || "Value 1";
+    const yAxisLabel = measureNames[1] || "Value 2";
 
     const datasetConfig: any = {
       label: data.title || "Value",
       data: values,
     };
 
-    if (isPieType) {
+    if (isScatter && hasSecondMeasure) {
+      // Scatter plot with 2 measures: x = first measure, y = second measure
+      datasetConfig.data = values.map((v: number, i: number) => ({ x: v, y: values2[i] }));
+      datasetConfig.backgroundColor = "#54a860";
+      datasetConfig.borderColor = "#54a860";
+      datasetConfig.pointRadius = 8;
+      datasetConfig.pointHoverRadius = 12;
+      datasetConfig.pointStyle = "circle";
+    } else if (isPieType) {
       datasetConfig.backgroundColor = richColorsAlpha;
       datasetConfig.borderColor = richColors;
       datasetConfig.borderWidth = 2;
@@ -1213,7 +1402,6 @@ function ChartView({ data }: { data: any }) {
       datasetConfig.pointHoverRadius = 6;
       datasetConfig.pointHoverBackgroundColor = "#fff";
     } else if (isBar) {
-      // Bar gradient
       const barGradient = ctx.createLinearGradient(0, 0, 0, 350);
       barGradient.addColorStop(0, "rgba(84, 168, 96, 0.9)");
       barGradient.addColorStop(1, "rgba(84, 168, 96, 0.4)");
@@ -1227,13 +1415,13 @@ function ChartView({ data }: { data: any }) {
     chartRef.current = new Chart(ctx, {
       type,
       data: {
-        labels,
+        labels: isScatter ? undefined : labels, // Scatter plots don't use labels
         datasets: [datasetConfig],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: { mode: "index", intersect: false },
+        interaction: { mode: isScatter ? "nearest" : "index", intersect: isScatter },
         plugins: {
           legend: { display: isPieType, position: "right", labels: { color: "#a8a8b3", padding: 12 } },
           tooltip: {
@@ -1244,8 +1432,14 @@ function ChartView({ data }: { data: any }) {
             padding: 14,
             cornerRadius: 8,
             displayColors: false,
-            callbacks: {
-              label: (ctx: any) => formatNumber(ctx.parsed.y),
+            callbacks: isScatter ? {
+              title: (items: any) => labels[items[0]?.dataIndex] || '',
+              label: (ctx: any) => [
+                `${xAxisLabel}: ${formatNumber(ctx.parsed.x)}`,
+                `${yAxisLabel}: ${formatNumber(ctx.parsed.y)}`
+              ],
+            } : {
+              label: (ctx: any) => formatNumber(ctx.parsed.y ?? ctx.parsed),
             },
           },
         },
@@ -1255,6 +1449,28 @@ function ChartView({ data }: { data: any }) {
             angleLines: { color: "rgba(255,255,255,0.1)" },
             pointLabels: { color: "#a8a8b3", font: { size: 11 } },
             ticks: { display: false },
+          },
+        } : isScatter ? {
+          x: {
+            type: "linear" as const,
+            position: "bottom" as const,
+            title: { display: true, text: xAxisLabel, color: "#a8a8b3" },
+            grid: { color: "rgba(255,255,255,0.05)" },
+            ticks: {
+              color: "#6b6b7b",
+              callback: (value: string | number) => formatNumber(Number(value)),
+              font: { size: 10 },
+            },
+          },
+          y: {
+            type: "linear" as const,
+            title: { display: true, text: yAxisLabel, color: "#a8a8b3" },
+            grid: { color: "rgba(255,255,255,0.05)" },
+            ticks: {
+              color: "#6b6b7b",
+              callback: (value: string | number) => formatNumber(Number(value)),
+              font: { size: 11 },
+            },
           },
         } : {
           x: {
@@ -1288,26 +1504,69 @@ function ChartView({ data }: { data: any }) {
     };
   }, [data]);
 
-  const hasData = data.labels?.length > 0 && data.values?.length > 0;
+  const hasChartData = data.labels?.length > 0 && data.values?.length > 0;
+  const hasFullTableData = data.tableData?.headers?.length > 0 && data.tableData?.rows?.length > 0;
+  const hasSimpleTableData = data.labels?.length > 0 && (!data.values || data.values.length === 0);
+  const isTableType = data.chartType?.toLowerCase() === "table";
 
   return (
     <div className="chart-container">
       <div className="chart-header">
         <div className="chart-title">{data.title || data.question}</div>
         {data.appLink && (
-          <a
-            href={data.appLink}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
             className="open-qlik-btn"
+            onClick={() => window.open(data.appLink, "_blank", "noopener,noreferrer")}
           >
             <ExternalLink size={14} /> Open in Qlik
-          </a>
+          </button>
         )}
       </div>
       <div className="chart-body">
-        {hasData ? (
+        {hasChartData ? (
           <canvas ref={canvasRef} />
+        ) : hasFullTableData ? (
+          <div className="data-table-wrapper">
+            <div className="data-table-info">{data.tableData.rows.length} rows</div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  {data.tableData.headers.map((h: string, i: number) => (
+                    <th key={i}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.tableData.rows.slice(0, 100).map((row: string[], i: number) => (
+                  <tr key={i}>
+                    {row.map((cell: string, j: number) => (
+                      <td key={j}>{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {data.tableData.rows.length > 100 && (
+              <div className="data-table-more">Showing first 100 of {data.tableData.rows.length} rows</div>
+            )}
+          </div>
+        ) : (isTableType || hasSimpleTableData) && data.labels?.length > 0 ? (
+          <div className="values-table">
+            <div className="values-table-header">
+              <span className="values-count">{data.labels.length} values</span>
+            </div>
+            <div className="values-list">
+              {data.labels.slice(0, 50).map((label: string, i: number) => (
+                <div key={i} className="value-item">
+                  <span className="value-index">{i + 1}</span>
+                  <span className="value-text">{label}</span>
+                </div>
+              ))}
+              {data.labels.length > 50 && (
+                <div className="values-more">+ {data.labels.length - 50} more values</div>
+              )}
+            </div>
+          </div>
         ) : (
           <div className="chart-error">
             <div className="error-icon"><AlertTriangle size={32} /></div>
@@ -1593,7 +1852,7 @@ function DeploymentsGrid({ data }: { data: any }) {
 }
 
 // ============ LINEAGE ============
-function LineageView({ data }: { data: any }) {
+function LineageView({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
   // Handle nested graph structure from API
   const graph = data.graph || data;
   const nodesObj = graph.nodes || {};
@@ -1646,14 +1905,18 @@ function LineageView({ data }: { data: any }) {
     return { icon: '⬡', color: '#6b7280', bg: 'rgba(107, 114, 128, 0.1)', label: 'Source' };
   };
 
-  // Render a node card
+  // Render a node card with 3-dot menu
   const NodeCard = ({ node, isTarget = false }: { node: any; isTarget?: boolean }) => {
     const style = getNodeStyle(node.type, node.subtype);
+    const resourceType = node.type?.includes('APP') ? 'app' : node.type === 'DATASET' ? 'dataset' : 'resource';
     return (
       <div className={`lineage-node-card ${isTarget ? 'target' : ''}`} style={{ borderColor: style.color }}>
         <div className="node-card-header" style={{ background: style.bg }}>
           <span className="node-card-icon" style={{ color: style.color }}>{style.icon}</span>
           <span className="node-card-type" style={{ color: style.color }}>{style.label}</span>
+          <div className="node-card-menu">
+            <ItemMenu item={{ id: node.id, name: node.label, resourceType }} sendAction={sendAction} />
+          </div>
         </div>
         <div className="node-card-body">
           <span className="node-card-name">{node.label}</span>
@@ -1903,7 +2166,7 @@ function AppLineageView({ data }: { data: any }) {
 }
 
 // ============ DATASETS ============
-function DatasetsGrid({ data, callTool }: { data: any; callTool: any }) {
+function DatasetsGrid({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context: Record<string, string>) => void }) {
   const allDatasets = data.datasets || [];
   const pagination = usePagination(allDatasets);
 
@@ -1917,13 +2180,16 @@ function DatasetsGrid({ data, callTool }: { data: any; callTool: any }) {
       ) : (
         <div className="results-list">
           {pagination.items.map((ds: any) => (
-            <button key={ds.id} className="result-row" onClick={() => callTool("qlik_get_dataset_details", { datasetId: ds.id }, { name: ds.name, id: ds.id, type: "dataset" })}>
-              <span className="result-icon"><Database size={16} /></span>
-              <span className="result-name">{ds.name}</span>
-              <span className="result-meta">{ds.type}</span>
-              <span className="result-date">{formatSize(ds.size)}</span>
-              <span className="result-arrow"><ChevronRight size={16} /></span>
-            </button>
+            <div key={ds.id} className="result-row-wrapper">
+              <button className="result-row" onClick={() => callTool("qlik_get_dataset_details", { datasetId: ds.id }, { name: ds.name, id: ds.id, type: "dataset" })}>
+                <span className="result-icon"><Database size={16} /></span>
+                <span className="result-name">{ds.name}</span>
+                <span className="result-meta">{ds.type}</span>
+                <span className="result-date">{formatSize(ds.size)}</span>
+                <span className="result-arrow"><ChevronRight size={16} /></span>
+              </button>
+              <ItemMenu item={{ id: ds.id, name: ds.name, resourceType: "dataset" }} sendAction={sendAction} />
+            </div>
           ))}
         </div>
       )}

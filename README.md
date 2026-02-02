@@ -28,10 +28,24 @@ The MCP App renders beautiful, interactive UI cards in Claude Desktop:
 
 - **Grid Views**: Apps, spaces, users, automations, alerts, assistants
 - **Detail Cards**: Rich information cards with metadata
-- **Charts**: Real-time Insight Advisor charts (bar, line, pie, etc.)
+- **Charts**: Real-time Insight Advisor charts (bar, line, pie, scatter, polar, radar, doughnut, area)
+- **Tables**: Data tables with multiple dimensions and measures
 - **Timelines**: Reload history, automation runs
-- **Lineage Graphs**: Data lineage visualization
-- **Interactive Elements**: Filters, sorting, pagination, action buttons
+- **Lineage Graphs**: Data lineage visualization with impact analysis
+- **Interactive Elements**: Filters, sorting, pagination, action buttons, 3-dot menus
+
+### Smart Chart Type Detection
+
+Ask for specific chart types in natural language:
+
+```
+"Show revenue by region as a polar chart"
+"Display sales by category in a pie chart"
+"Revenue vs profit by customer as a scatter plot"
+"Product details as a table"
+```
+
+Supported chart types: bar, line, pie, doughnut, polar, radar, scatter, area, treemap, table
 
 ## Architecture
 
@@ -82,15 +96,16 @@ The heart of the application containing:
 - **Auto-Pagination**: Fetches all results using cursor-based pagination
 - **WebSocket Integration**: Enigma.js for Qlik Engine communication
 
-#### mcp-app.tsx - React UI (~90KB)
+#### mcp-app.tsx - React UI (~100KB)
 
 Comprehensive UI components including:
 
 - **Grid Components**: AppsGrid, SpacesGrid, UsersGrid, AutomationsGrid, AlertsGrid, AssistantsGrid, ExperimentsGrid, DeploymentsGrid, DatasetsGrid
 - **Detail Components**: AppDetail, SpaceDetail, UserDetail, AutomationDetail, AlertDetail, AssistantDetail, ExperimentDetail, DatasetDetail
-- **Visualization**: ChartView (bar, line, pie, area, scatter), LineageView, AppLineageView
-- **Interactive**: ReloadsTimeline, AutomationRuns, SelectionsPanel, FieldValuesModal
+- **Visualization**: ChartView (bar, line, pie, doughnut, polar, radar, scatter, area), LineageView, AppLineageView, DataTable
+- **Interactive**: ReloadsTimeline, AutomationRuns, SelectionsPanel, FieldValuesModal, ItemMenu (3-dot menu)
 - **Common**: Card, Pagination, StatusBadge, ErrorCard, ActionSuccess
+- **40-color palette** for rich pie/doughnut/polar/radar charts
 
 #### global.css - Styles (~53KB)
 
@@ -164,9 +179,13 @@ Search for apps containing "sales"
 Show me details for the Sales Dashboard app including its data lineage
 ```
 
-### Get Insight Advisor chart
+### Get Insight Advisor charts
 ```
 Show me revenue by region for the Sales app
+Show revenue by category as a pie chart
+Display profit vs revenue by customer as a scatter plot
+Show sales data as a polar chart
+Get product breakdown in table format
 ```
 
 ### Ask Qlik Answers
@@ -296,7 +315,7 @@ The API key needs access to the following Qlik Cloud APIs:
 | MCP Apps | @modelcontextprotocol/ext-apps |
 | UI Framework | React 19 |
 | Language | TypeScript |
-| Charts | Recharts |
+| Charts | Chart.js + react-chartjs-2 |
 | Icons | Lucide React |
 | Qlik Engine | Enigma.js |
 | Build Tool | Vite |
@@ -313,6 +332,8 @@ The API key needs access to the following Qlik Cloud APIs:
 4. **User Interaction**: The UI can call back to the server using `callTool()` or prompt Claude with `sendAction()`
 
 5. **Engine Integration**: For advanced features like selections and app generation, the server opens WebSocket connections to Qlik Engine via Enigma.js
+
+6. **Smart ID Resolution**: The lineage tool automatically resolves dataset item IDs to their QRI identifiers, allowing seamless lineage lookups from any item list
 
 ## License
 

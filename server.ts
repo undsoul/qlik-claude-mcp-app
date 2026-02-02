@@ -92,6 +92,19 @@ class QlikClient {
     return this.fetch(`/apps/${appId}`);
   }
 
+  async getItemIdForApp(appId: string): Promise<string | null> {
+    try {
+      const result = await this.fetch(`/items?resourceId=${appId}&resourceType=app&limit=1`);
+      return result.data?.[0]?.id || null;
+    } catch {
+      return null;
+    }
+  }
+
+  getTenantUrl(): string {
+    return this.baseUrl;
+  }
+
   // ============ SPACES ============
   async getSpacesCatalog(query?: string, spaceType?: string): Promise<any> {
     const allItems: any[] = [];
@@ -200,6 +213,28 @@ class QlikClient {
 
   async getReloadStatus(reloadId: string): Promise<any> {
     return this.fetch(`/reloads/${reloadId}`);
+  }
+
+  async getReloadLog(reloadId: string): Promise<string> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/v1/reloads/${reloadId}/logs`, {
+        headers: {
+          "Authorization": `Bearer ${this.apiKey}`,
+        },
+      });
+      if (!response.ok) {
+        return `Unable to fetch log: ${response.status}`;
+      }
+      return await response.text();
+    } catch (e: any) {
+      return `Error fetching log: ${e.message}`;
+    }
+  }
+
+  async getReloadDetail(reloadId: string): Promise<any> {
+    const reload = await this.getReloadStatus(reloadId);
+    const log = await this.getReloadLog(reloadId);
+    return { ...reload, log };
   }
 
   async cancelReload(reloadId: string): Promise<any> {
@@ -353,7 +388,12 @@ class QlikClient {
   }
 
   // Get actual chart data from Qlik Engine
-  async getChartData(appId: string, hypercubeDef: any): Promise<{ labels: string[]; values: number[]; title: string }> {
+  async getChartData(appId: string, hypercubeDef: any, chartType?: string): Promise<{ labels: string[]; values: number[]; values2?: number[]; measureNames?: string[]; tableData?: { headers: string[]; rows: string[][] }; title: string }> {
+    // Handle undefined or invalid hypercubeDef (e.g., map charts)
+    if (!hypercubeDef || (!hypercubeDef.qDimensions && !hypercubeDef.qMeasures)) {
+      throw new Error("Chart type not supported - no hypercube definition available");
+    }
+
     const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
     console.error(`[Engine] Connecting to ${wsUrl}`);
 
@@ -374,17 +414,22 @@ class QlikClient {
       const app: any = await global.openDoc(appId);
       console.error(`[Engine] App opened`);
 
-      // FIX: Use only FIRST dimension to get aggregated data
-      // Insight Advisor often returns 2+ dimensions, but we want totals by first dim
-      const simplifiedDef = {
+      // For tables, keep all dimensions and measures; for charts, simplify to first dim
+      const isTable = chartType?.toLowerCase() === 'table';
+      const simplifiedDef = isTable ? {
+        qDimensions: hypercubeDef.qDimensions || [],
+        qMeasures: hypercubeDef.qMeasures || [],
+        qSuppressZero: true,
+        qSuppressMissing: true,
+      } : {
         qDimensions: hypercubeDef.qDimensions?.slice(0, 1) || [],
         qMeasures: hypercubeDef.qMeasures || [],
         qSuppressZero: true,
         qSuppressMissing: true,
-        qInterColumnSortOrder: [0, 1], // Sort by dimension first
+        qInterColumnSortOrder: [0, 1],
       };
 
-      console.error(`[Engine] Simplified: ${simplifiedDef.qDimensions.length} dims, ${simplifiedDef.qMeasures.length} measures`);
+      console.error(`[Engine] ${isTable ? 'Table' : 'Simplified'}: ${simplifiedDef.qDimensions.length} dims, ${simplifiedDef.qMeasures.length} measures`);
 
       const obj: any = await app.createSessionObject({
         qInfo: { qType: "temp-hypercube" },
@@ -425,40 +470,70 @@ class QlikClient {
         }
       }
 
-      // Extract labels and values (simplified: 1 dim + 1 measure)
+      // Get measure names from layout (these are the actual names from the data model)
+      const measureNames = (hyperCube.qMeasureInfo || []).map((m: any) => m.qFallbackTitle || 'Value');
+
+      // For tables: extract all columns with headers
+      if (isTable) {
+        const dimInfo = hyperCube.qDimensionInfo || [];
+        const measureInfo = hyperCube.qMeasureInfo || [];
+        const headers = [
+          ...dimInfo.map((d: any) => d.qFallbackTitle || 'Dimension'),
+          ...measureInfo.map((m: any) => m.qFallbackTitle || 'Measure'),
+        ];
+        const rows: string[][] = matrix.map((row: any[]) => row.map((cell: any) => cell?.qText || ''));
+
+        console.error(`[Engine] Table: ${headers.length} columns, ${rows.length} rows`);
+        await app.destroySessionObject(obj.id);
+        await session.close();
+        return { labels: [], values: [], measureNames, tableData: { headers, rows }, title: "" };
+      }
+
+      // Extract labels and values for charts
       const labels: string[] = [];
       const values: number[] = [];
+      const values2: number[] = [];
+      const hasTwoMeasures = totalCols >= 3;
 
       for (const row of matrix) {
-        // Column 0 = dimension (label)
         const dimCell = row[0];
-        // Column 1 = measure (value)
         const measureCell = row[1];
+        const measureCell2 = row[2];
 
         if (dimCell?.qText) {
           labels.push(dimCell.qText);
         }
 
         if (measureCell) {
-          // Prefer qNum (actual numeric value)
           if (typeof measureCell.qNum === "number" && !isNaN(measureCell.qNum)) {
             values.push(measureCell.qNum);
           } else if (measureCell.qText) {
-            // Fallback to parsing qText
             const parsed = parseFloat(measureCell.qText.replace(/[^\d.-]/g, ""));
             values.push(isNaN(parsed) ? 0 : parsed);
           } else {
             values.push(0);
           }
         }
+
+        if (hasTwoMeasures && measureCell2) {
+          if (typeof measureCell2.qNum === "number" && !isNaN(measureCell2.qNum)) {
+            values2.push(measureCell2.qNum);
+          } else if (measureCell2.qText) {
+            const parsed = parseFloat(measureCell2.qText.replace(/[^\d.-]/g, ""));
+            values2.push(isNaN(parsed) ? 0 : parsed);
+          } else {
+            values2.push(0);
+          }
+        }
       }
 
-      console.error(`[Engine] Extracted ${labels.length} labels, ${values.length} values`);
+      console.error(`[Engine] Extracted ${labels.length} labels, ${values.length} values${hasTwoMeasures ? `, ${values2.length} values2` : ''}`);
       console.error(`[Engine] Sample: labels=${labels.slice(0, 3).join(", ")} values=${values.slice(0, 3).join(", ")}`);
+      console.error(`[Engine] Measure names: ${measureNames.join(", ")}`);
 
       await app.destroySessionObject(obj.id);
       await session.close();
-      return { labels, values, title: "" };
+      return { labels, values, values2: hasTwoMeasures ? values2 : undefined, measureNames, title: "" };
     } catch (err: any) {
       console.error(`[Engine] Error: ${err.message}`);
       console.error(`[Engine] Stack: ${err.stack}`);
@@ -966,15 +1041,32 @@ If multiple spaces found, ask user which one they want before calling detail too
   });
 
   registerAppTool(server, "reload_status", {
-    title: "Get Reload Status",
-    description: "Gets the current status of a reload task",
+    title: "Get Reload Status & Log",
+    description: "Gets the current status of a reload task including the reload log",
     inputSchema: { reloadId: z.string().describe("The reload task ID to check") },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
-    const reload = await qlik.getReloadStatus(args.reloadId);
+    const reload = await qlik.getReloadDetail(args.reloadId);
+    // Get item ID to construct history link
+    const itemId = await qlik.getItemIdForApp(reload.appId);
+    const historyLink = itemId ? `${qlik.getTenantUrl()}/item/${itemId}/history` : null;
+
     return {
       content: [{ type: "text", text: `Status: ${reload.status}` }],
-      structuredContent: { type: "reload-status", ...reload },
+      structuredContent: {
+        type: "reload-detail",
+        id: reload.id,
+        appId: reload.appId,
+        status: reload.status,
+        reloadType: reload.type,
+        startTime: reload.startTime,
+        endTime: reload.endTime,
+        duration: reload.duration,
+        log: reload.log,
+        errorCode: reload.errorCode,
+        errorMessage: reload.errorMessage,
+        historyLink,
+      },
     };
   });
 
@@ -1222,14 +1314,34 @@ Workflow:
     title: "Insight Advisor",
     description: `Ask natural language questions about Qlik data. Returns a REAL CHART with actual data.
 
-Example: "show me sales trend", "revenue by region", "top 10 customers"`,
+Example: "show me sales trend", "revenue by region", "top 10 customers"
+
+If user explicitly requests a chart type (e.g., "as pie chart", "show as bar"), pass chartType parameter.`,
     inputSchema: {
       text: z.string().describe("Natural language question"),
       appId: z.string().describe("App ID"),
+      chartType: z.string().optional().describe("Override chart type if user explicitly requests one (pie, bar, line, donut, area, treemap)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
-    console.error(`[Insight] Question: ${args.text}`);
+    // Auto-detect chart type from text if not provided as parameter
+    let detectedChartType = args.chartType?.toLowerCase();
+    if (!detectedChartType) {
+      const textLower = args.text.toLowerCase();
+      // Check for explicit chart type requests (order matters - more specific first)
+      if (textLower.includes('polar')) detectedChartType = 'polar';
+      else if (textLower.includes('radar')) detectedChartType = 'radar';
+      else if (textLower.includes('pie')) detectedChartType = 'pie';
+      else if (textLower.includes('bar chart') || textLower.includes('bar graph')) detectedChartType = 'bar';
+      else if (textLower.includes('line chart') || textLower.includes('line graph')) detectedChartType = 'line';
+      else if (textLower.includes('donut') || textLower.includes('doughnut')) detectedChartType = 'donut';
+      else if (textLower.includes('scatter')) detectedChartType = 'scatter';
+      else if (textLower.includes('area chart') || textLower.includes('area graph')) detectedChartType = 'area';
+      else if (textLower.includes('treemap')) detectedChartType = 'treemap';
+      else if (textLower.includes('table')) detectedChartType = 'table';
+    }
+
+    console.error(`[Insight] Question: ${args.text}, Override chart: ${detectedChartType || 'none'}`);
 
     // Get recommendations
     const result = await qlik.insightAdvisor(args.appId, args.text);
@@ -1245,14 +1357,30 @@ Example: "show me sales trend", "revenue by region", "top 10 customers"`,
     // Get the FIRST (best) recommendation
     const rec = recommendations[0];
     const hypercubeDef = rec.options?.qHyperCubeDef || rec.qHyperCubeDef;
-    const chartType = rec.chartType || "barchart";
+
+    // Chart type mapping including polar/radar
+    const chartTypeMap: Record<string, string> = {
+      'pie': 'piechart',
+      'bar': 'barchart',
+      'line': 'linechart',
+      'donut': 'donutchart',
+      'doughnut': 'donutchart',
+      'area': 'areachart',
+      'treemap': 'treemap',
+      'scatter': 'scatterplot',
+      'combo': 'combochart',
+      'table': 'table',
+      'polar': 'polarArea',
+      'radar': 'radar',
+    };
+    const chartType = detectedChartType ? (chartTypeMap[detectedChartType] || detectedChartType) : (rec.chartType || "barchart");
     const title = rec.options?.title || rec.analysis?.title || args.text;
 
     console.error(`[Insight] Chart type: ${chartType}, Title: ${title}`);
 
     // Get REAL data from Qlik Engine
     try {
-      const chartData = await qlik.getChartData(args.appId, hypercubeDef);
+      const chartData = await qlik.getChartData(args.appId, hypercubeDef, chartType);
 
       return {
         content: [{ type: "text", text: `Chart: ${title}` }],
@@ -1262,6 +1390,9 @@ Example: "show me sales trend", "revenue by region", "top 10 customers"`,
           title,
           labels: chartData.labels,
           values: chartData.values,
+          values2: chartData.values2, // Second measure for scatter plots
+          tableData: chartData.tableData, // For table chart type
+          measureNames: chartData.measureNames, // Axis labels from Engine
           question: args.text,
           appLink: `${TENANT_URL}/sense/app/${args.appId}/insight-advisor`,
         },
@@ -1361,11 +1492,11 @@ If multiple experiments found, ask user which one they want.`,
     description: `Get lineage information for an app or dataset.
 
 **For Apps**: Pass the appId (UUID format like "950a5da4-0e61-466b-a1c5-805b072da128")
-**For Datasets**: Pass the secureQri (starts with "qri:qdf:space://")
+**For Datasets**: Pass the dataset ID (item ID) or secureQri (starts with "qri:")
 
 The lineage shows all data sources connected to the resource.`,
     inputSchema: {
-      nodeId: z.string().describe("App ID (UUID) or dataset secureQri"),
+      nodeId: z.string().describe("App ID (UUID), dataset ID (item ID), or dataset secureQri"),
       appId: z.string().optional().describe("App ID if viewing app lineage"),
       direction: z.enum(["upstream", "downstream", "both"]).optional().default("both"),
       levels: z.number().optional().default(5).describe("Number of levels to traverse"),
@@ -1387,16 +1518,33 @@ The lineage shows all data sources connected to the resource.`,
       };
     }
 
-    // Dataset lineage - validate secureQri format
+    // Check if it's already a QRI
+    let qri = args.nodeId;
+
+    // If not a QRI, assume it's a dataset item ID and fetch the secureQri
     if (!args.nodeId.startsWith('qri:')) {
-      return {
-        content: [{ type: "text", text: `Error: Invalid format. For apps use appId (UUID), for datasets use secureQri (starts with 'qri:')` }],
-        structuredContent: { type: "error", message: "Use appId (UUID) or secureQri" },
-        isError: true,
-      };
+      console.error(`[Lineage] nodeId "${args.nodeId}" is not a QRI, fetching dataset details to get secureQri`);
+      try {
+        const dataset = await qlik.getDatasetDetails(args.nodeId);
+        if (!dataset.secureQri) {
+          return {
+            content: [{ type: "text", text: `Error: Dataset ${args.nodeId} does not have a secureQri for lineage lookup` }],
+            structuredContent: { type: "error", message: "Dataset missing secureQri" },
+            isError: true,
+          };
+        }
+        qri = dataset.secureQri;
+        console.error(`[Lineage] Retrieved secureQri: ${qri}`);
+      } catch (err: any) {
+        return {
+          content: [{ type: "text", text: `Error: Could not fetch dataset details for ${args.nodeId}: ${err.message}` }],
+          structuredContent: { type: "error", message: err.message },
+          isError: true,
+        };
+      }
     }
 
-    const lineage = await qlik.getLineage(args.nodeId, args.direction, args.levels);
+    const lineage = await qlik.getLineage(qri, args.direction, args.levels);
     return {
       content: [{ type: "text", text: `[Lineage displayed in UI]` }],
       structuredContent: { type: "lineage", ...lineage },
