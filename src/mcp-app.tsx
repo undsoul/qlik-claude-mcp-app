@@ -3962,19 +3962,23 @@ function AppScriptView({ data }: { data: any }) {
   const lineCount = data.lineCount || allLines.length;
 
   // Parse tabs from script - look for //$tab or ///$tab markers
+  // Examples: ///$tab Load QVD Data, //$tab Main, ///$tab Create ML Training Data
   const parseTabs = () => {
     const tabs: Array<{ name: string; startLine: number; endLine: number }> = [];
     let currentTabName: string | null = null;
     let currentTabStart = 0;
 
     allLines.forEach((line, i) => {
-      const tabMatch = line.match(/^\/\/+\$tab\s+(.+)$/i);
+      // Clean the line - remove carriage returns and trim
+      const cleanLine = line.replace(/\r/g, '').trim();
+      // Match ///$tab or //$tab followed by tab name
+      const tabMatch = cleanLine.match(/^\/\/+\$tab\s+(.+)/i);
       if (tabMatch) {
         // Close previous tab
         if (currentTabName !== null) {
           tabs.push({ name: currentTabName, startLine: currentTabStart, endLine: i - 1 });
         }
-        // Start new tab
+        // Start new tab - trim the captured name
         currentTabName = tabMatch[1].trim();
         currentTabStart = i;
       }
