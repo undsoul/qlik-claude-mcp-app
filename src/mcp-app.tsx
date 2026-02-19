@@ -18,7 +18,7 @@ import {
   Bot, AppWindow, CheckCircle, AlertTriangle, ChevronRight,
   ExternalLink, FolderOpen, Database, Bell, Zap, RefreshCw,
   FileText, Search, File, Layers, XCircle, Clock, Timer, MoreVertical, GitBranch, Share2,
-  Maximize2, Minimize2, Loader2
+  Maximize2, Minimize2, Loader2, Play
 } from "lucide-react";
 import "./global.css";
 
@@ -2154,15 +2154,31 @@ function ExperimentsGrid({ data, callTool }: { data: any; callTool: any }) {
 }
 
 function ExperimentDetail({ data }: { data: any }) {
+  // Handle nested data structure from API: data.data.attributes
+  const attrs = data.data?.attributes || data.attributes || data;
+  const name = attrs.name || data.name || "Experiment";
+
   return (
-    <Card header={{ label: "Experiment", title: data.name, gradient: "teal" }}>
-      <div className="stats-grid">
-        <Stat label="Status" value={data.status} />
-        <Stat label="Target" value={data.targetFeature} />
-        <Stat label="Algorithm" value={data.algorithm || "Auto"} />
-        <Stat label="Created" value={formatDate(data.createdAt)} />
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Zap size={16} />
+          {name}
+        </span>
+        {attrs.status && <span className="results-badge green">{attrs.status}</span>}
       </div>
-    </Card>
+      <div className="stats-grid">
+        <Stat label="Target" value={attrs.targetFeature || attrs.target || "-"} />
+        <Stat label="Algorithm" value={attrs.algorithm || "Auto"} />
+        <Stat label="Created" value={formatDate(attrs.createdAt)} />
+        <Stat label="Updated" value={formatDate(attrs.updatedAt)} />
+      </div>
+      {attrs.description && (
+        <p style={{ padding: '12px 16px', margin: 0, fontSize: '13px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}>
+          {attrs.description}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -2172,25 +2188,29 @@ function DeploymentDetail({ data }: { data: any }) {
   const name = attrs.name || data.name || "Deployment";
 
   return (
-    <Card header={{ label: "Deployment", title: name, gradient: "indigo" }}>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Play size={16} />
+          {name}
+        </span>
+        <div className="results-badges">
+          {attrs.enablePredictions && <span className="results-badge green">Active</span>}
+          {attrs.deprecated && <span className="results-badge error">Deprecated</span>}
+          {!attrs.enablePredictions && !attrs.deprecated && <span className="results-badge">Inactive</span>}
+        </div>
+      </div>
       <div className="stats-grid">
-        <Stat label="Status" value={attrs.enablePredictions ? "Active" : "Inactive"} />
         <Stat label="Model ID" value={attrs.modelId?.slice(0, 8) + "..." || "-"} />
         <Stat label="Created" value={formatDate(attrs.createdAt)} />
         <Stat label="Updated" value={formatDate(attrs.updatedAt)} />
       </div>
       {attrs.description && (
-        <p className="deployment-description">{attrs.description}</p>
+        <p style={{ padding: '12px 16px', margin: 0, fontSize: '13px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}>
+          {attrs.description}
+        </p>
       )}
-      <div className="deployment-info">
-        {attrs.deprecated && (
-          <span className="deployment-badge deprecated">Deprecated</span>
-        )}
-        {attrs.enablePredictions && (
-          <span className="deployment-badge active">Predictions Enabled</span>
-        )}
-      </div>
-    </Card>
+    </div>
   );
 }
 
@@ -2431,6 +2451,7 @@ function LineageView({ data, sendAction }: { data: any; sendAction: (action: str
 function AppLineageView({ data }: { data: any }) {
   const sources = data.sources || [];
   const internal = data.internal || [];
+  const tables = data.tables || [];
 
   // Group sources by type
   const qvdFiles = sources.filter((s: any) => s.type === "QVD");
@@ -2449,14 +2470,18 @@ function AppLineageView({ data }: { data: any }) {
     return "#6b7280";
   };
 
-  if (sources.length === 0 && internal.length === 0) {
+  // Calculate totals
+  const totalRows = tables.reduce((sum: number, t: any) => sum + (t.rows || 0), 0);
+  const totalFields = tables.reduce((sum: number, t: any) => sum + (t.fields || 0), 0);
+
+  if (sources.length === 0 && internal.length === 0 && tables.length === 0) {
     return (
       <div className="results-panel">
         <div className="results-header">
-          <span className="results-count">App Data Sources</span>
+          <span className="results-count">App Data Model</span>
           <span className="results-badge">No data</span>
         </div>
-        <div className="empty-state">No data sources found for this app</div>
+        <div className="empty-state">No data found for this app</div>
       </div>
     );
   }
@@ -2464,11 +2489,57 @@ function AppLineageView({ data }: { data: any }) {
   return (
     <div className="results-panel">
       <div className="results-header">
-        <span className="results-count">App Data Sources</span>
-        <span className="results-badge">{sources.length} sources</span>
+        <span className="results-count">App Data Model</span>
+        <div className="results-badges">
+          {tables.length > 0 && <span className="results-badge">{tables.length} tables</span>}
+          {sources.length > 0 && <span className="results-badge">{sources.length} sources</span>}
+        </div>
       </div>
 
+      {/* Summary stats */}
+      {tables.length > 0 && (
+        <div className="lineage-stats">
+          <div className="lineage-stat">
+            <span className="stat-value">{tables.length}</span>
+            <span className="stat-label">Tables</span>
+          </div>
+          <div className="lineage-stat">
+            <span className="stat-value">{totalRows.toLocaleString()}</span>
+            <span className="stat-label">Total Rows</span>
+          </div>
+          <div className="lineage-stat">
+            <span className="stat-value">{totalFields}</span>
+            <span className="stat-label">Total Fields</span>
+          </div>
+        </div>
+      )}
+
       <div className="app-lineage-content">
+        {/* Tables */}
+        {tables.length > 0 && (
+          <div className="source-group">
+            <div className="source-group-header">
+              <Layers size={16} />
+              <span>Data Tables</span>
+            </div>
+            <div className="tables-list">
+              {tables.map((t: any, i: number) => (
+                <div key={i} className="table-item">
+                  <div className="table-name">
+                    <Database size={14} />
+                    <span>{t.name}</span>
+                    {t.isSynthetic && <span className="synthetic-badge">Synthetic</span>}
+                  </div>
+                  <div className="table-stats">
+                    <span className="table-stat">{t.rows?.toLocaleString() || 0} rows</span>
+                    <span className="table-stat">{t.fields || 0} fields</span>
+                    {t.keyFields > 0 && <span className="table-stat key">{t.keyFields} keys</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {/* QVD Files */}
         {qvdFiles.length > 0 && (
           <div className="source-group">
