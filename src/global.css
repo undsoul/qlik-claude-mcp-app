@@ -3293,6 +3293,28 @@
   background: var(--accent-hover);
 }
 
+/* Text input without search icon */
+.text-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.text-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.text-input::placeholder {
+  color: var(--text-muted);
+}
+
 .space-desc {
   padding: var(--space-2) var(--space-4);
   color: var(--text-secondary);

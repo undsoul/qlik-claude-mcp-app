@@ -1513,12 +1513,11 @@ function AssistantDetail({ data, sendAction }: { data: any; sendAction: (action:
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             type="text"
-            className="filter-input"
+            className="text-input"
             placeholder="e.g., What is the total revenue?"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAsk()}
-            style={{ paddingLeft: 12 }}
           />
           <button className="result-action-btn" onClick={handleAsk} disabled={!question.trim()}>
             Ask
@@ -1557,7 +1556,7 @@ function ChatResponse({ data, callTool }: { data: any; callTool: any }) {
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               type="text"
-              className="filter-input"
+              className="text-input"
               placeholder="Follow-up question..."
               value={followUp}
               onChange={(e) => setFollowUp(e.target.value)}
@@ -1567,7 +1566,6 @@ function ChatResponse({ data, callTool }: { data: any; callTool: any }) {
                   setFollowUp("");
                 }
               }}
-              style={{ paddingLeft: 12 }}
             />
             <button className="result-action-btn" onClick={() => {
               if (followUp.trim()) {
