@@ -2142,7 +2142,7 @@ function ExperimentsGrid({ data, callTool }: { data: any; callTool: any }) {
             <button key={exp.id} className="result-row" onClick={() => callTool("experiment", { experimentId: exp.id }, { name: exp.name, id: exp.id, type: "experiment" })}>
               <span className="result-icon"><GitBranch size={16} /></span>
               <span className="result-name">{exp.name || "Unnamed"}</span>
-              <span className="result-meta">{exp.status || "-"}</span>
+              {exp.status && <span className="result-badge">{exp.status}</span>}
               <span className="result-arrow"><ChevronRight size={16} /></span>
             </button>
           ))}
@@ -2229,7 +2229,7 @@ function DeploymentsGrid({ data }: { data: any }) {
             <div key={dep.id} className="result-row static">
               <span className="result-icon"><Share2 size={16} /></span>
               <span className="result-name">{dep.name || "Unnamed"}</span>
-              <span className="result-meta">{dep.status || "-"}</span>
+              {dep.status && <span className="result-badge">{dep.status}</span>}
             </div>
           ))}
         </div>
