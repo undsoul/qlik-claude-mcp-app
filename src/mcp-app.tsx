@@ -2449,10 +2449,10 @@ function AppLineageView({ data }: { data: any }) {
 
   if (sources.length === 0 && internal.length === 0) {
     return (
-      <div className="lineage-view">
-        <div className="lineage-title">
-          <h2>App Data Sources</h2>
-          <span className="lineage-badge">No data</span>
+      <div className="results-panel">
+        <div className="results-header">
+          <span className="results-count">App Data Sources</span>
+          <span className="results-badge">No data</span>
         </div>
         <div className="empty-state">No data sources found for this app</div>
       </div>
@@ -2460,10 +2460,10 @@ function AppLineageView({ data }: { data: any }) {
   }
 
   return (
-    <div className="lineage-view">
-      <div className="lineage-title">
-        <h2>App Data Sources</h2>
-        <span className="lineage-badge">{sources.length} external sources</span>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">App Data Sources</span>
+        <span className="results-badge">{sources.length} sources</span>
       </div>
 
       <div className="app-lineage-content">
