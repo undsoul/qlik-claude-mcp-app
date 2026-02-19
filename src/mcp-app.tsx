@@ -3,15 +3,22 @@
  * Beautiful, interactive visualizations for Qlik Cloud
  */
 import type { App, McpUiHostContext } from "@modelcontextprotocol/ext-apps";
-import { useApp } from "@modelcontextprotocol/ext-apps/react";
+import {
+  useApp,
+  useHostStyleVariables,
+  useHostFonts,
+  useDocumentTheme,
+  type McpUiTheme
+} from "@modelcontextprotocol/ext-apps/react";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { StrictMode, useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { Chart, registerables } from "chart.js";
 import {
-  Bot, AppWindow, Rocket, CheckCircle, AlertTriangle, ChevronRight,
-  ExternalLink, FolderOpen, Database, FlaskConical, Bell, Zap, RefreshCw,
-  FileText, Search, File, Layers, XCircle, Clock, Timer, MoreVertical, GitBranch, Share2
+  Bot, AppWindow, CheckCircle, AlertTriangle, ChevronRight,
+  ExternalLink, FolderOpen, Database, Bell, Zap, RefreshCw,
+  FileText, Search, File, Layers, XCircle, Clock, Timer, MoreVertical, GitBranch, Share2,
+  Maximize2, Minimize2, Loader2
 } from "lucide-react";
 import "./global.css";
 
@@ -30,24 +37,100 @@ function QlikApp() {
   const [_hostContext, setHostContext] = useState<McpUiHostContext | undefined>();
   const [loading, setLoading] = useState(false);
   const [appInstance, setAppInstance] = useState<App | null>(null);
+  const [partialInput, setPartialInput] = useState<any>(null);
+  const [cancelled, setCancelled] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // MCP SDK v1.0.1 Theme Hook - reactive to document theme
+  const theme: McpUiTheme = useDocumentTheme();
 
   const { app, error } = useApp({
     appInfo: { name: "Qlik Mcp App", version: "2.0.0" },
     capabilities: {},
     onAppCreated: (app) => {
       setAppInstance(app);
+
+      // Tool result handler
       app.ontoolresult = async (result) => {
         setLoading(false);
+        setPartialInput(null);
+        setCancelled(false);
         setToolResult(result);
       };
-      app.onerror = (e) => { console.error(e); setLoading(false); };
+
+      // Error handler
+      app.onerror = (e) => {
+        console.error(e);
+        setLoading(false);
+        setPartialInput(null);
+      };
+
+      // Host context change handler
       app.onhostcontextchanged = (params) => setHostContext((prev) => ({ ...prev, ...params }));
+
+      // MCP SDK v1.0.1: Streaming tool input (progressive loading)
+      app.ontoolinputpartial = async (params) => {
+        setPartialInput(params);
+        setLoading(true);
+        setCancelled(false);
+      };
+
+      // MCP SDK v1.0.1: Tool cancellation handler
+      app.ontoolcancelled = async () => {
+        setCancelled(true);
+        setLoading(false);
+        setPartialInput(null);
+      };
+
+      // MCP SDK v1.0.1: Teardown handler for cleanup
+      app.onteardown = async () => {
+        setToolResult(null);
+        setPartialInput(null);
+        setCancelled(false);
+        setLoading(false);
+        return {}; // Must return McpUiResourceTeardownResult
+      };
     },
   });
+
+  // MCP SDK v1.0.1 Theme Hooks - apply host styles and fonts
+  useHostStyleVariables(app, app?.getHostContext());
+  useHostFonts(app, app?.getHostContext());
 
   useEffect(() => {
     if (app) setHostContext(app.getHostContext());
   }, [app]);
+
+  // Toggle fullscreen mode
+  const toggleFullscreen = useCallback(async () => {
+    if (!appInstance) return;
+    const hostContext = appInstance.getHostContext();
+    // Check if fullscreen is available
+    const availableModes = hostContext?.availableDisplayModes || [];
+    if (!availableModes.includes("fullscreen") && !availableModes.includes("inline")) {
+      console.warn("Display mode change not supported by host");
+      return;
+    }
+    try {
+      const newMode = isFullscreen ? "inline" : "fullscreen";
+      await appInstance.requestDisplayMode({ mode: newMode as "inline" | "fullscreen" | "pip" });
+      setIsFullscreen(!isFullscreen);
+    } catch (e) {
+      console.error("Failed to toggle display mode:", e);
+    }
+  }, [appInstance, isFullscreen]);
+
+  // Open external link using MCP SDK
+  const openLink = useCallback(async (url: string) => {
+    if (!appInstance) return;
+    try {
+      await appInstance.openLink({ url });
+    } catch (e) {
+      console.error("Failed to open link:", e);
+      // Fallback: try window.open
+      window.open(url, "_blank");
+    }
+  }, [appInstance]);
 
   const callTool = useCallback(async (toolName: string, args: any = {}, selection?: { name: string; id: string; type: string }) => {
     if (!appInstance) return;
@@ -62,15 +145,20 @@ function QlikApp() {
       }
       // Otherwise call the tool directly with loading indicator
       setLoading(true);
-      await appInstance.callServerTool({ name: toolName, arguments: args });
+      const result = await appInstance.callServerTool({ name: toolName, arguments: args });
+      // Handle the result directly since ontoolresult may not fire for callServerTool
+      setLoading(false);
+      if (result) {
+        setToolResult(result as any);
+      }
     } catch (e) {
-      console.error(e);
+      console.error("callTool error:", e);
       setLoading(false);
     }
   }, [appInstance]);
 
-  // Send action message to Claude for button clicks
-  const sendAction = useCallback(async (action: string, context: Record<string, string>) => {
+  // Send action message to Claude - creates a new response in chat
+  const sendAction = useCallback(async (action: string, context: Record<string, string> = {}) => {
     if (!appInstance) return;
     const contextStr = Object.entries(context).map(([k, v]) => `${k}: ${v}`).join(", ");
     const text = contextStr ? `${action} (${contextStr})` : action;
@@ -85,9 +173,57 @@ function QlikApp() {
 
   const data = extractData(toolResult);
   return (
-    <div className="app-container">
-      {loading && <LoadingOverlay />}
-      <ContentRouter data={data} callTool={callTool} sendAction={sendAction} />
+    <div className={`app-container ${theme === "light" ? "light-theme" : "dark-theme"}`}>
+      {/* Header with controls */}
+      <div className="app-header">
+        <div className="app-header-title">
+          <AppWindow size={16} />
+          <span>Qlik Cloud</span>
+        </div>
+        <div className="app-header-actions">
+          <button
+            className="header-btn"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Cancelled state */}
+      {cancelled && (
+        <div className="cancelled-banner">
+          <XCircle size={16} />
+          <span>Operation cancelled</span>
+        </div>
+      )}
+
+      {/* Partial input preview (streaming) */}
+      {partialInput && loading && (
+        <div className="partial-preview">
+          <div className="partial-header">
+            <Loader2 size={16} className="spinning" />
+            <span>Processing: {partialInput.name}</span>
+          </div>
+          {partialInput.arguments && Object.keys(partialInput.arguments).length > 0 && (
+            <div className="partial-args">
+              {Object.entries(partialInput.arguments).map(([key, value]) => (
+                <div key={key} className="partial-arg">
+                  <span className="partial-key">{key}:</span>
+                  <span className="partial-value">{String(value).substring(0, 100)}{String(value).length > 100 ? '...' : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading overlay */}
+      {loading && !partialInput && <LoadingOverlay />}
+
+      {/* Main content */}
+      <ContentRouter data={data} callTool={callTool} sendAction={sendAction} openLink={openLink} />
     </div>
   );
 }
@@ -182,7 +318,7 @@ function ErrorView({ message }: { message: string }) {
 }
 
 // ============ ITEM MENU (3-dot) ============
-function ItemMenu({ item, sendAction }: { item: { id: string; name: string; resourceType?: string }; sendAction: (action: string, context: Record<string, string>) => void }) {
+function ItemMenu({ item, sendAction }: { item: { id: string; name: string; resourceType?: string }; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -280,12 +416,12 @@ function ErrorCard({ data }: { data: any }) {
 }
 
 // ============ CONTENT ROUTER ============
-function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (name: string, args?: any, selection?: any) => void; sendAction: (action: string, context: Record<string, string>) => void }) {
+function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; callTool: (name: string, args?: any, selection?: any) => void; sendAction: (action: string, context?: Record<string, string>) => void; openLink: (url: string) => void }) {
   if (!data) return null;
 
   const views: Record<string, React.ReactNode> = {
-    "apps": <AppsGrid data={data} callTool={callTool} sendAction={sendAction} />,
-    "app-detail": <AppDetail data={data} sendAction={sendAction} />,
+    "apps": <AppsGrid data={data} callTool={callTool} sendAction={sendAction} openLink={openLink} />,
+    "app-detail": <AppDetail data={data} sendAction={sendAction} openLink={openLink} />,
     "spaces": <SpacesGrid data={data} callTool={callTool} />,
     "space-detail": <SpaceDetail data={data} callTool={callTool} sendAction={sendAction} />,
     "users": <UsersGrid data={data} callTool={callTool} />,
@@ -294,7 +430,7 @@ function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (n
     "reload-triggered": <ActionSuccess title="Reload Started" data={data} />,
     "reload-status": <ReloadStatus data={data} />,
     "reload-detail": <ReloadDetail data={data} />,
-    "reload-cancelled": <ActionSuccess title="Reload Cancelled" data={data} />,
+    "reload-cancelled": <ActionCancelled title="Reload Cancelled" data={data} />,
     "automations": <AutomationsGrid data={data} callTool={callTool} />,
     "automation-detail": <AutomationDetail data={data} sendAction={sendAction} />,
     "automation-runs": <AutomationRuns data={data} />,
@@ -310,6 +446,7 @@ function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (n
     "experiments": <ExperimentsGrid data={data} callTool={callTool} />,
     "experiment-detail": <ExperimentDetail data={data} />,
     "deployments": <DeploymentsGrid data={data} />,
+    "deployment-detail": <DeploymentDetail data={data} />,
     "lineage": <LineageView data={data} sendAction={sendAction} />,
     "app-lineage": <AppLineageView data={data} />,
     "datasets": <DatasetsGrid data={data} callTool={callTool} sendAction={sendAction} />,
@@ -317,8 +454,32 @@ function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (n
     "tenant": <TenantView data={data} />,
     "license": <LicenseView data={data} />,
     "health": <HealthView data={data} />,
+    "app-fields": <AppFieldsView data={data} />,
+    "sheets": <SheetsGrid data={data} callTool={callTool} openLink={openLink} />,
+    "sheet-detail": <SheetDetail data={data} openLink={openLink} />,
+    "field-values": <FieldValuesView data={data} callTool={callTool} />,
+    "master-dimensions": <MasterDimensionsView data={data} />,
+    "master-measures": <MasterMeasuresView data={data} />,
+    "glossaries": <GlossariesGrid data={data} callTool={callTool} />,
+    "glossary-detail": <GlossaryDetail data={data} callTool={callTool} />,
+    "glossary-term": <GlossaryTermView data={data} />,
+    "glossary-term-created": <ActionSuccess title="Term Created" data={data} />,
+    "data-products": <DataProductsGrid data={data} callTool={callTool} />,
+    "data-product-detail": <DataProductDetail data={data} />,
+    "dataset-profile": <DatasetProfileView data={data} />,
+    "dataset-sample": <DatasetSampleView data={data} />,
+    "bookmarks": <BookmarksView data={data} sendAction={sendAction} />,
+    "variables": <VariablesView data={data} sendAction={sendAction} />,
+    "stories": <StoriesView data={data} />,
+    "app-script": <AppScriptView data={data} />,
+    "app-connections": <AppConnectionsView data={data} />,
+    "data-connections": <DataConnectionsGrid data={data} callTool={callTool} />,
+    "data-connection-detail": <DataConnectionDetail data={data} />,
+    "action-success": <ActionSuccess title="Success" data={data} />,
     "app-generated": <AppGeneratedFlow data={data} />,
     "error": <ErrorCard data={data} />,
+    "selection-info": <SelectionInfoView data={data} />,
+    "app-selections": <SelectionInfoView data={data} />,
   };
 
   // Check if data contains error indicators even if type isn't "error"
@@ -330,7 +491,7 @@ function ContentRouter({ data, callTool, sendAction }: { data: any; callTool: (n
 }
 
 // ============ APPS ============
-function AppsGrid({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function AppsGrid({ data, callTool, sendAction, openLink }: { data: any; callTool: any; sendAction: (action: string, context?: Record<string, string>) => void; openLink: (url: string) => void }) {
   const [filter, setFilter] = useState("");
   const [sortBy, setSortBy] = useState("-updatedAt");
 
@@ -409,18 +570,28 @@ function AppsGrid({ data, callTool, sendAction }: { data: any; callTool: any; se
         <div className="empty-state">No results found</div>
       ) : (
         <div className="results-list">
-          {pagination.items.map((app: any) => {
-            const { tool, type } = getToolAndType(app);
+          {pagination.items.map((item: any) => {
+            const { tool, type } = getToolAndType(item);
+            const isApp = type === "app";
             return (
-              <div key={app.id} className="result-row-wrapper">
-                <button className="result-row" onClick={() => callTool(tool, { appId: app.id, datasetId: app.id, automationId: app.id }, { name: app.name, id: app.id, type })}>
-                  <span className="result-icon">{getIcon(app.resourceType)}</span>
-                  <span className="result-name">{app.name}</span>
-                  {app.resourceType && <span className="result-meta">{app.resourceType}</span>}
-                  <span className="result-date">{formatDate(app.updatedAt).split(',')[0]}</span>
+              <div key={item.id} className="result-row-wrapper">
+                <button className="result-row" onClick={() => callTool(tool, { appId: item.id, datasetId: item.id, automationId: item.id }, { name: item.name, id: item.id, type })}>
+                  <span className="result-icon">{getIcon(item.resourceType)}</span>
+                  <span className="result-name">{item.name}</span>
+                  {item.resourceType && <span className="result-meta">{item.resourceType}</span>}
+                  <span className="result-date">{formatDate(item.updatedAt).split(',')[0]}</span>
                   <span className="result-arrow"><ChevronRight size={16} /></span>
                 </button>
-                <ItemMenu item={{ id: app.id, name: app.name, resourceType: app.resourceType || "app" }} sendAction={sendAction} />
+                {isApp && data.tenantUrl && (
+                  <button
+                    className="result-open-btn"
+                    onClick={(e) => { e.stopPropagation(); openLink(`${data.tenantUrl}/sense/app/${item.id}`); }}
+                    title="Open in Qlik Sense"
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                )}
+                <ItemMenu item={{ id: item.id, name: item.name, resourceType: item.resourceType || "app" }} sendAction={sendAction} />
               </div>
             );
           })}
@@ -431,7 +602,7 @@ function AppsGrid({ data, callTool, sendAction }: { data: any; callTool: any; se
   );
 }
 
-function AppDetail({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function AppDetail({ data, sendAction, openLink }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void; openLink: (url: string) => void }) {
   const [question, setQuestion] = useState("");
 
   // Get initials for avatar
@@ -444,7 +615,6 @@ function AppDetail({ data, sendAction }: { data: any; sendAction: (action: strin
 
   const handleAskQuestion = () => {
     if (question.trim()) {
-      // Use sendAction to let Claude handle the insight query
       sendAction(`Ask Insight Advisor: "${question.trim()}"`, { appId: data.id, appName: data.name });
       setQuestion("");
     }
@@ -545,6 +715,15 @@ function AppDetail({ data, sendAction }: { data: any; sendAction: (action: strin
 
       {/* Actions */}
       <div className="app-detail-actions">
+        {data.tenantUrl && (
+          <button
+            className="btn primary open-in-qlik"
+            onClick={() => openLink(`${data.tenantUrl}/sense/app/${data.id}`)}
+            title="Open this app in Qlik Sense"
+          >
+            <ExternalLink size={14} /> Open in Qlik
+          </button>
+        )}
         <button className="btn secondary" onClick={() => sendAction("Trigger reload for this app", { appId: data.id, appName: data.name })}>
           <RefreshCw size={14} /> Reload
         </button>
@@ -630,7 +809,7 @@ function SpacesGrid({ data, callTool }: { data: any; callTool: any }) {
   );
 }
 
-function SpaceDetail({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function SpaceDetail({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const [filter, setFilter] = useState("");
   const [sortBy, setSortBy] = useState("-updatedAt");
   const spaceType = data.spaceType || "shared";
@@ -739,47 +918,123 @@ function SpaceDetail({ data, callTool, sendAction }: { data: any; callTool: any;
 }
 
 // ============ USERS ============
+// Helper function for avatar colors
+function getAvatarColor(name: string): string {
+  const colors = [
+    "#4f46e5", "#7c3aed", "#db2777", "#dc2626",
+    "#ea580c", "#ca8a04", "#16a34a", "#0891b2",
+    "#2563eb", "#9333ea", "#c026d3", "#e11d48"
+  ];
+  const index = (name?.charCodeAt(0) || 0) % colors.length;
+  return colors[index];
+}
+
 function UsersGrid({ data, callTool }: { data: any; callTool: any }) {
-  const pagination = usePagination(data.users || []);
+  const [filter, setFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const allUsers = data.users || [];
+
+  const filtered = allUsers.filter((user: any) => {
+    const matchesSearch = !filter ||
+      user.name?.toLowerCase().includes(filter.toLowerCase()) ||
+      user.email?.toLowerCase().includes(filter.toLowerCase());
+    const matchesStatus = statusFilter === "all" || user.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const pagination = usePagination(filtered, 20);
+  const activeCount = allUsers.filter((u: any) => u.status === "active").length;
 
   return (
-    <Card header={{ label: "Directory", title: `${data.users?.length || 0} Users`, gradient: "cyan" }}>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{allUsers.length} users</span>
+        <span className="results-badge green">{activeCount} active</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search users..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <div className="filter-tabs">
+          <button className={statusFilter === "all" ? "active" : ""} onClick={() => setStatusFilter("all")}>All</button>
+          <button className={statusFilter === "active" ? "active" : ""} onClick={() => setStatusFilter("active")}>Active</button>
+          <button className={statusFilter === "invited" ? "active" : ""} onClick={() => setStatusFilter("invited")}>Invited</button>
+        </div>
+      </div>
       {pagination.items.length === 0 ? (
         <div className="empty-state">No users found</div>
       ) : (
-        <div className="users-grid">
+        <div className="results-list">
           {pagination.items.map((user: any) => (
-            <button key={user.id} className="user-card" onClick={() => callTool("qlik_get_user_info", { userId: user.id }, { name: user.name, id: user.id, type: "user" })}>
-              <div className="user-avatar">{user.name?.charAt(0) || "?"}</div>
-              <div className="user-info">
-                <div className="user-name">{user.name}</div>
-                <div className="user-email">{user.email}</div>
+            <button
+              key={user.id}
+              className="result-row"
+              onClick={() => callTool("user", { userId: user.id }, { name: user.name, id: user.id, type: "user" })}
+            >
+              <div className="result-avatar" style={{ background: getAvatarColor(user.name) }}>
+                {user.name?.charAt(0)?.toUpperCase() || "?"}
               </div>
-              <span className={`status-badge ${user.status}`}>{user.status}</span>
+              <span className="result-name">{user.name}</span>
+              <span className="result-meta">{user.email}</span>
+              <span className={`result-badge ${user.status}`}>{user.status}</span>
             </button>
           ))}
         </div>
       )}
-      <Pagination {...pagination} />
-    </Card>
+      {pagination.totalPages > 1 && <Pagination {...pagination} />}
+    </div>
   );
 }
 
 function UserDetail({ data }: { data: any }) {
   return (
-    <Card header={{ label: "User", title: data.name, gradient: "cyan" }}>
-      <div className="stats-grid">
-        <Stat label="Email" value={data.email} />
-        <Stat label="Status" value={data.status} />
-        <Stat label="Created" value={formatDate(data.createdAt)} />
-        <Stat label="Last Updated" value={formatDate(data.lastUpdatedAt)} />
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{data.name}</span>
+        <span className={`results-badge ${data.status === "active" ? "green" : ""}`}>{data.status}</span>
       </div>
-    </Card>
+      <div className="results-content">
+        <div className="result-avatar" style={{ background: getAvatarColor(data.name) }}>
+          {data.name?.charAt(0)?.toUpperCase() || "?"}
+        </div>
+        <div className="user-info">
+          <div className="user-email">{data.email}</div>
+        </div>
+      </div>
+      <div className="results-details">
+        <div className="detail-row">
+          <span className="detail-label">User ID</span>
+          <span className="detail-value mono">{data.id}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Created</span>
+          <span className="detail-value">{formatDate(data.createdAt)}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Last Updated</span>
+          <span className="detail-value">{formatDate(data.lastUpdatedAt)}</span>
+        </div>
+        {data.roles && data.roles.length > 0 && (
+          <div className="detail-row">
+            <span className="detail-label">Roles</span>
+            <div className="detail-value roles">
+              {data.roles.map((role: string, i: number) => (
+                <span key={i} className="role-tag">{role}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 // ============ RELOADS ============
-function ReloadsTimeline({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function ReloadsTimeline({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const pagination = usePagination(data.reloads || [], 10);
 
   const getStatusIcon = (status: string) => {
@@ -801,13 +1056,9 @@ function ReloadsTimeline({ data, sendAction }: { data: any; sendAction: (action:
   };
 
   return (
-    <div className="reload-history-panel">
-      <div className="reload-history-header">
-        <div className="reload-history-title">
-          <RefreshCw size={18} />
-          <span>Reload History</span>
-        </div>
-        <span className="reload-count">{data.reloads?.length || 0} total</span>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{data.reloads?.length || 0} reloads</span>
       </div>
       {pagination.items.length === 0 ? (
         <div className="empty-state">No reloads found</div>
@@ -833,7 +1084,7 @@ function ReloadsTimeline({ data, sendAction }: { data: any; sendAction: (action:
               <div className="reload-actions">
                 <button
                   className="btn-view-log"
-                  onClick={() => sendAction("Show me the reload log and details", { reloadId: reload.id })}
+                  onClick={() => sendAction("Show reload log and details", { reloadId: reload.id })}
                   title="View reload log"
                 >
                   <FileText size={14} /> Log
@@ -855,14 +1106,26 @@ function ReloadsTimeline({ data, sendAction }: { data: any; sendAction: (action:
 
 function ReloadStatus({ data }: { data: any }) {
   return (
-    <Card header={{ label: "Reload", title: data.status, gradient: data.status === "SUCCEEDED" ? "green" : "orange" }}>
-      <div className="stats-grid">
-        <Stat label="ID" value={data.id} />
-        <Stat label="App" value={data.appId} />
-        <Stat label="Started" value={formatDate(data.startTime)} />
-        <Stat label="Duration" value={data.duration ? `${Math.round(data.duration / 1000)}s` : "In progress"} />
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">Reload Status</span>
+        <span className={`results-badge ${data.status === "SUCCEEDED" ? "green" : data.status === "FAILED" ? "red" : ""}`}>{data.status}</span>
       </div>
-    </Card>
+      <div className="results-stats">
+        <div className="results-stat">
+          <span className="stat-label">ID</span>
+          <span className="stat-value mono">{data.id?.slice(0, 12)}...</span>
+        </div>
+        <div className="results-stat">
+          <span className="stat-label">Started</span>
+          <span className="stat-value">{formatDate(data.startTime)}</span>
+        </div>
+        <div className="results-stat">
+          <span className="stat-label">Duration</span>
+          <span className="stat-value">{data.duration ? `${Math.round(data.duration / 1000)}s` : "In progress"}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -936,20 +1199,38 @@ function ReloadDetail({ data }: { data: any }) {
 
 // ============ AUTOMATIONS ============
 function AutomationsGrid({ data, callTool }: { data: any; callTool: any }) {
+  const [filter, setFilter] = useState("");
   const allAutomations = data.automations || [];
-  const pagination = usePagination(allAutomations);
+
+  const filtered = allAutomations.filter((auto: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return auto.name?.toLowerCase().includes(search) ||
+           auto.state?.toLowerCase().includes(search);
+  });
+
+  const pagination = usePagination(filtered);
 
   return (
     <div className="results-panel">
       <div className="results-header">
-        <span className="results-count">{allAutomations.length} automation{allAutomations.length !== 1 ? 's' : ''}</span>
+        <span className="results-count">{filtered.length} automation{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allAutomations.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search automations..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
       </div>
       {pagination.items.length === 0 ? (
-        <div className="empty-state">No automations found</div>
+        <div className="empty-state">{filter ? `No automations match "${filter}"` : "No automations found"}</div>
       ) : (
         <div className="results-list">
           {pagination.items.map((auto: any) => (
-            <button key={auto.id} className="result-row" onClick={() => callTool("qlik_automation_get_details", { automationId: auto.id }, { name: auto.name, id: auto.id, type: "automation" })}>
+            <button key={auto.id} className="result-row" onClick={() => callTool("automation", { automationId: auto.id }, { name: auto.name, id: auto.id, type: "automation" })}>
               <span className="result-icon"><Zap size={16} /></span>
               <span className="result-name">{auto.name}</span>
               <span className="result-meta">{auto.state}</span>
@@ -964,7 +1245,7 @@ function AutomationsGrid({ data, callTool }: { data: any; callTool: any }) {
   );
 }
 
-function AutomationDetail({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function AutomationDetail({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   return (
     <Card header={{ label: "Automation", title: data.name, gradient: "pink" }}>
       <div className="stats-grid">
@@ -1012,45 +1293,91 @@ function AutomationRuns({ data }: { data: any }) {
 
 // ============ ALERTS ============
 function AlertsGrid({ data, callTool }: { data: any; callTool: any }) {
-  const pagination = usePagination(data.alerts || []);
+  const [filter, setFilter] = useState("");
+  const allAlerts = data.alerts || [];
+
+  const filtered = allAlerts.filter((alert: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return alert.name?.toLowerCase().includes(search);
+  });
+
+  const pagination = usePagination(filtered);
 
   return (
-    <Card header={{ label: "Notifications", title: `${data.alerts?.length || 0} Alerts`, gradient: "red" }}>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filtered.length} alert{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allAlerts.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search alerts..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
       {pagination.items.length === 0 ? (
-        <div className="empty-state">No alerts found</div>
+        <div className="empty-state">{filter ? `No alerts match "${filter}"` : "No alerts found"}</div>
       ) : (
-        <div className="list-view">
+        <div className="results-list">
           {pagination.items.map((alert: any) => (
-            <button key={alert.id} className="list-item interactive" onClick={() => callTool("qlik_alert_get", { alertId: alert.id }, { name: alert.name, id: alert.id, type: "alert" })}>
-              <span className="li-icon"><Bell size={16} /></span>
-              <div className="li-content">
-                <div className="li-title">{alert.name}</div>
-                <div className="li-meta">{alert.enabled ? "Enabled" : "Disabled"}</div>
-              </div>
-              <span className="li-arrow"><ChevronRight size={16} /></span>
+            <button key={alert.id} className="result-row" onClick={() => callTool("alert", { alertId: alert.id }, { name: alert.name, id: alert.id, type: "alert" })}>
+              <span className="result-icon"><Bell size={16} /></span>
+              <span className="result-name">{alert.name}</span>
+              <span className={`result-badge ${alert.enabled ? 'enabled' : 'disabled'}`}>
+                {alert.enabled ? "Enabled" : "Disabled"}
+              </span>
+              <span className="result-arrow"><ChevronRight size={16} /></span>
             </button>
           ))}
         </div>
       )}
-      <Pagination {...pagination} />
-    </Card>
+      {pagination.totalPages > 1 && <Pagination {...pagination} />}
+    </div>
   );
 }
 
-function AlertDetail({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function AlertDetail({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   return (
     <Card header={{ label: "Alert", title: data.name, gradient: data.enabled ? "green" : "dark" }}>
+      {data.description && (
+        <p className="alert-description">{data.description}</p>
+      )}
       <div className="stats-grid">
         <Stat label="Status" value={data.enabled ? "Enabled" : "Disabled"} />
         <Stat label="Last Triggered" value={formatDate(data.lastTriggered)} />
+        {data.triggerCount !== undefined && <Stat label="Trigger Count" value={data.triggerCount} />}
+        {data.condition && <Stat label="Condition" value={data.condition} />}
       </div>
-      {data.enabled && (
-        <div className="action-buttons">
+      {data.recipients && data.recipients.length > 0 && (
+        <div className="alert-recipients">
+          <div className="recipients-label">Recipients ({data.recipients.length})</div>
+          <div className="recipients-list">
+            {data.recipients.slice(0, 5).map((r: any, i: number) => (
+              <span key={i} className="recipient-tag">{r.name || r.email || r}</span>
+            ))}
+            {data.recipients.length > 5 && <span className="recipient-more">+{data.recipients.length - 5} more</span>}
+          </div>
+        </div>
+      )}
+      {data.appId && (
+        <div className="alert-app">
+          <span className="app-label">App:</span>
+          <span className="app-name">{data.appName || data.appId}</span>
+        </div>
+      )}
+      <div className="action-buttons">
+        {data.enabled && (
           <button className="btn primary" onClick={() => sendAction("Trigger this alert now", { alertId: data.id, alertName: data.name })}>
             Trigger Now
           </button>
-        </div>
-      )}
+        )}
+        <button className="btn secondary" onClick={() => sendAction("Delete this alert", { alertId: data.id, alertName: data.name })}>
+          Delete Alert
+        </button>
+      </div>
     </Card>
   );
 }
@@ -1127,12 +1454,12 @@ function AssistantsGrid({ data, callTool }: { data: any; callTool: any }) {
   );
 }
 
-function AssistantDetail({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function AssistantDetail({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const [question, setQuestion] = useState("");
 
   const handleAsk = () => {
     if (question.trim()) {
-      sendAction(`Ask the Qlik Answers assistant "${data.name}" this question: ${question.trim()}`, { assistantId: data.id });
+      sendAction(`Ask the Qlik Answers assistant "${data.name}": ${question.trim()}`, { assistantId: data.id });
       setQuestion("");
     }
   };
@@ -1724,26 +2051,20 @@ function InsightsView({ data }: { data: any }) {
   const insights = data.insights || [];
 
   return (
-    <div className="insights-container">
-      <div className="insights-header">
-        <div className="insights-question">
-          <span className="question-icon">✨</span>
-          <span className="question-text">{data.question}</span>
-        </div>
-        <div className="insights-header-actions">
-          {data.insightAdvisorLink && (
-            <a
-              href={data.insightAdvisorLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="open-qlik-btn"
-            >
-              <ExternalLink size={14} /> Open in Qlik
-            </a>
-          )}
-          <div className="insights-count">{insights.length} visualization{insights.length !== 1 ? "s" : ""}</div>
-        </div>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{insights.length} insight{insights.length !== 1 ? "s" : ""}</span>
+        {data.insightAdvisorLink && (
+          <a href={data.insightAdvisorLink} target="_blank" rel="noopener noreferrer" className="results-link">
+            <ExternalLink size={12} /> Open in Qlik
+          </a>
+        )}
       </div>
+      {data.question && (
+        <div className="results-subtitle">
+          <span>✨ {data.question}</span>
+        </div>
+      )}
 
       {insights.length === 0 ? (
         <div className="empty-state">No insights found for this question</div>
@@ -1785,24 +2106,41 @@ function InsightsView({ data }: { data: any }) {
 
 // ============ AUTOML ============
 function ExperimentsGrid({ data, callTool }: { data: any; callTool: any }) {
+  const [filter, setFilter] = useState("");
   const allExperiments = data.experiments || [];
-  const pagination = usePagination(allExperiments);
+
+  const filtered = allExperiments.filter((exp: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return exp.name?.toLowerCase().includes(search) ||
+           exp.status?.toLowerCase().includes(search);
+  });
+
+  const pagination = usePagination(filtered);
 
   return (
     <div className="results-panel">
       <div className="results-header">
-        <span className="results-count">{allExperiments.length} experiment{allExperiments.length !== 1 ? 's' : ''}</span>
+        <span className="results-count">{filtered.length} experiment{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allExperiments.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search experiments..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
       </div>
       {pagination.items.length === 0 ? (
-        <div className="empty-state">No experiments found</div>
+        <div className="empty-state">{filter ? `No experiments match "${filter}"` : "No experiments found"}</div>
       ) : (
         <div className="results-list">
           {pagination.items.map((exp: any) => (
-            <button key={exp.id} className="result-row" onClick={() => callTool("qlik_automl_get_experiment", { experimentId: exp.id }, { name: exp.name, id: exp.id, type: "experiment" })}>
-              <span className="result-icon"><FlaskConical size={16} /></span>
-              <span className="result-name">{exp.name}</span>
-              <span className="result-meta">{exp.targetFeature}</span>
-              <span className="result-date">{exp.status}</span>
+            <button key={exp.id} className="result-row" onClick={() => callTool("experiment", { experimentId: exp.id }, { name: exp.name, id: exp.id, type: "experiment" })}>
+              <span className="result-icon"><GitBranch size={16} /></span>
+              <span className="result-name">{exp.name || "Unnamed"}</span>
+              <span className="result-meta">{exp.status || "-"}</span>
               <span className="result-arrow"><ChevronRight size={16} /></span>
             </button>
           ))}
@@ -1826,33 +2164,81 @@ function ExperimentDetail({ data }: { data: any }) {
   );
 }
 
-function DeploymentsGrid({ data }: { data: any }) {
-  const pagination = usePagination(data.deployments || []);
+function DeploymentDetail({ data }: { data: any }) {
+  // Handle nested data structure from API
+  const attrs = data.data?.attributes || data.attributes || data;
+  const name = attrs.name || data.name || "Deployment";
 
   return (
-    <Card header={{ label: "ML Deployments", title: `${data.deployments?.length || 0} Active`, gradient: "teal" }}>
-      {pagination.items.length === 0 ? (
-        <div className="empty-state">No deployments found</div>
-      ) : (
-        <div className="list-view">
-          {pagination.items.map((dep: any) => (
-            <div key={dep.id} className="list-item">
-              <span className="li-icon"><Rocket size={16} /></span>
-              <div className="li-content">
-                <div className="li-title">{dep.name}</div>
-                <div className="li-meta">{dep.status}</div>
-              </div>
-            </div>
-          ))}
-        </div>
+    <Card header={{ label: "Deployment", title: name, gradient: "indigo" }}>
+      <div className="stats-grid">
+        <Stat label="Status" value={attrs.enablePredictions ? "Active" : "Inactive"} />
+        <Stat label="Model ID" value={attrs.modelId?.slice(0, 8) + "..." || "-"} />
+        <Stat label="Created" value={formatDate(attrs.createdAt)} />
+        <Stat label="Updated" value={formatDate(attrs.updatedAt)} />
+      </div>
+      {attrs.description && (
+        <p className="deployment-description">{attrs.description}</p>
       )}
-      <Pagination {...pagination} />
+      <div className="deployment-info">
+        {attrs.deprecated && (
+          <span className="deployment-badge deprecated">Deprecated</span>
+        )}
+        {attrs.enablePredictions && (
+          <span className="deployment-badge active">Predictions Enabled</span>
+        )}
+      </div>
     </Card>
   );
 }
 
+function DeploymentsGrid({ data }: { data: any }) {
+  const [filter, setFilter] = useState("");
+  const allDeployments = data.deployments || [];
+
+  const filtered = allDeployments.filter((dep: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return dep.name?.toLowerCase().includes(search) ||
+           dep.status?.toLowerCase().includes(search);
+  });
+
+  const pagination = usePagination(filtered);
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filtered.length} deployment{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allDeployments.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search deployments..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      {pagination.items.length === 0 ? (
+        <div className="empty-state">{filter ? `No deployments match "${filter}"` : "No deployments found"}</div>
+      ) : (
+        <div className="results-list">
+          {pagination.items.map((dep: any) => (
+            <div key={dep.id} className="result-row static">
+              <span className="result-icon"><Share2 size={16} /></span>
+              <span className="result-name">{dep.name || "Unnamed"}</span>
+              <span className="result-meta">{dep.status || "-"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {pagination.totalPages > 1 && <Pagination {...pagination} />}
+    </div>
+  );
+}
+
 // ============ LINEAGE ============
-function LineageView({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function LineageView({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   // Handle nested graph structure from API
   const graph = data.graph || data;
   const nodesObj = graph.nodes || {};
@@ -1954,10 +2340,10 @@ function LineageView({ data, sendAction }: { data: any; sendAction: (action: str
 
   if (nodesList.length === 0) {
     return (
-      <div className="lineage-view">
-        <div className="lineage-title">
-          <h2>Data Lineage</h2>
-          <span className="lineage-badge">No data</span>
+      <div className="results-panel">
+        <div className="results-header">
+          <span className="results-count">Data Lineage</span>
+          <span className="results-badge">No data</span>
         </div>
         <div className="empty-state">No lineage information available for this resource</div>
       </div>
@@ -1965,10 +2351,10 @@ function LineageView({ data, sendAction }: { data: any; sendAction: (action: str
   }
 
   return (
-    <div className="lineage-view">
-      <div className="lineage-title">
-        <h2>Data Lineage</h2>
-        <span className="lineage-badge">{nodesList.length} nodes</span>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">Data Lineage</span>
+        <span className="results-badge">{nodesList.length} nodes</span>
       </div>
 
       <div className="lineage-graph">
@@ -2166,7 +2552,7 @@ function AppLineageView({ data }: { data: any }) {
 }
 
 // ============ DATASETS ============
-function DatasetsGrid({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function DatasetsGrid({ data, callTool, sendAction }: { data: any; callTool: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const allDatasets = data.datasets || [];
   const pagination = usePagination(allDatasets);
 
@@ -2198,7 +2584,7 @@ function DatasetsGrid({ data, callTool, sendAction }: { data: any; callTool: any
   );
 }
 
-function DatasetDetail({ data, sendAction }: { data: any; sendAction: (action: string, context: Record<string, string>) => void }) {
+function DatasetDetail({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const [fieldsExpanded, setFieldsExpanded] = useState(false);
   const columns = data.columns || data.schema?.dataFields || data.schema?.fields || data.dataFields || data.fields || [];
   const rowCount = data.rowCount;
@@ -2356,10 +2742,10 @@ function DatasetDetail({ data, sendAction }: { data: any; sendAction: (action: s
 
       {/* Action Buttons */}
       <div className="dataset-actions">
-        <button className="btn primary" onClick={() => sendAction("Generate a Qlik app from this dataset", { datasetId: data.id, datasetName: data.name, spaceName: data.spaceName || "Personal" })}>
+        <button className="btn primary" onClick={() => sendAction("Generate a Qlik app from this dataset", { datasetId: data.id, datasetName: data.name })}>
           Generate App
         </button>
-        <button className="btn secondary" onClick={() => sendAction("Show data lineage for this dataset", { datasetId: data.id, datasetName: data.name, secureQri: data.secureQri || "", qri: data.qri || "" })}>
+        <button className="btn secondary" onClick={() => sendAction("Show data lineage for this dataset", { datasetId: data.id, datasetName: data.name })}>
           View Lineage
         </button>
       </div>
@@ -2369,40 +2755,1562 @@ function DatasetDetail({ data, sendAction }: { data: any; sendAction: (action: s
 
 // ============ TENANT & LICENSE ============
 function TenantView({ data }: { data: any }) {
+  const counts = data.counts || {};
+
   return (
-    <Card header={{ label: "Tenant", title: data.name, gradient: "dark" }}>
-      <div className="stats-grid">
-        <Stat label="ID" value={data.id} />
-        <Stat label="Region" value={data.datacenter || "N/A"} />
-        <Stat label="Created" value={formatDate(data.createdDate)} />
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{data.name}</span>
+        <div className="results-badges">
+          <span className={`results-badge ${data.status}`}>{data.status}</span>
+          <span className="results-badge">{data.datacenter}</span>
+        </div>
       </div>
-    </Card>
+      <div className="results-stats">
+        <div className="results-stat">
+          <span className="stat-value">{counts.apps || 0}</span>
+          <span className="stat-label">Apps</span>
+        </div>
+        <div className="results-stat">
+          <span className="stat-value">{counts.spaces || 0}</span>
+          <span className="stat-label">Spaces</span>
+        </div>
+        <div className="results-stat">
+          <span className="stat-value">{data.usersUsed || counts.users || 0}</span>
+          <span className="stat-label">Users</span>
+        </div>
+        <div className="results-stat">
+          <span className="stat-value">{counts.automations || 0}</span>
+          <span className="stat-label">Automations</span>
+        </div>
+      </div>
+      {data.licenseNumber && (
+        <div className="results-footer">
+          <span className="results-mono">{data.licenseNumber}</span>
+          <span className={`results-badge sm ${data.licenseStatus?.toLowerCase()}`}>{data.licenseStatus}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
 function LicenseView({ data }: { data: any }) {
+  const allotments = data.allotments || [];
+  const features = data.features || [];
+  const usersAllotment = allotments.find((a: any) => a.displayName?.toLowerCase().includes("user"));
+
   return (
-    <Card header={{ label: "License", title: "Consumption Overview", gradient: "amber" }}>
-      <div className="stats-grid">
-        <Stat label="Plan" value={data.licenseType || "Enterprise"} />
-        <Stat label="Users" value={data.totalUsers || "N/A"} />
-        <Stat label="Apps" value={data.totalApps || "N/A"} />
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{data.product || "Qlik Cloud"}</span>
+        <span className={`results-badge ${data.status?.toLowerCase()}`}>{data.status}</span>
       </div>
-    </Card>
+      <div className="results-stats">
+        <div className="results-stat">
+          <span className="stat-label">License</span>
+          <span className="stat-value mono">{data.licenseNumber}</span>
+        </div>
+        <div className="results-stat">
+          <span className="stat-label">Valid Until</span>
+          <span className="stat-value">{data.valid || "-"}</span>
+        </div>
+        {data.daysRemaining !== null && (
+          <div className="results-stat">
+            <span className="stat-label">Remaining</span>
+            <span className={`stat-value ${data.daysRemaining < 30 ? "warning" : ""}`}>{data.daysRemaining} days</span>
+          </div>
+        )}
+        {usersAllotment && (
+          <div className="results-stat">
+            <span className="stat-label">Users</span>
+            <span className="stat-value">{usersAllotment.used} / {usersAllotment.total}</span>
+          </div>
+        )}
+        {features.length > 0 && (
+          <div className="results-stat">
+            <span className="stat-label">Features</span>
+            <span className="stat-value">{features.length} enabled</span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 function HealthView({ data }: { data: any }) {
   const healthy = data.status === "healthy";
   return (
-    <Card header={{ label: "Status", title: healthy ? "All Systems Operational" : "Issues Detected", gradient: healthy ? "green" : "red" }}>
-      <div className="health-status">
-        <div className={`health-indicator ${healthy ? "healthy" : "unhealthy"}`}></div>
-        <div className="health-info">
-          <div className="health-label">{data.tenant}</div>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{healthy ? "All Systems Operational" : "Issues Detected"}</span>
+        <span className={`results-badge ${healthy ? "green" : "red"}`}>{healthy ? "Healthy" : "Error"}</span>
+      </div>
+      <div className="results-content">
+        <div className={`health-dot ${healthy ? "healthy" : "unhealthy"}`}></div>
+        <div className="health-details">
+          <div className="health-tenant">{data.tenant}</div>
           {data.user && <div className="health-user">Connected as: {data.user}</div>}
           {data.error && <div className="health-error">{data.error}</div>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ APP FIELDS VIEW ============
+function AppFieldsView({ data }: { data: any }) {
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState("");
+
+  const tables = data.tables || [];
+  const totalFields = data.totalFields || 0;
+
+  const toggleTable = (tableName: string) => {
+    const newExpanded = new Set(expandedTables);
+    if (newExpanded.has(tableName)) {
+      newExpanded.delete(tableName);
+    } else {
+      newExpanded.add(tableName);
+    }
+    setExpandedTables(newExpanded);
+  };
+
+  const expandAll = () => {
+    setExpandedTables(new Set(tables.map((t: any) => t.name)));
+  };
+
+  const collapseAll = () => {
+    setExpandedTables(new Set());
+  };
+
+  // Filter tables and fields
+  const filterLower = filter.toLowerCase();
+  const filteredTables = tables.map((t: any) => ({
+    ...t,
+    fields: t.fields?.filter((f: string) => f.toLowerCase().includes(filterLower)) || [],
+    matchesName: t.name.toLowerCase().includes(filterLower),
+  })).filter((t: any) => t.matchesName || t.fields.length > 0);
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{totalFields} fields in {tables.length} tables</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Filter tables and fields..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <div className="filter-tabs">
+          <button onClick={expandAll}>Expand All</button>
+          <button onClick={collapseAll}>Collapse All</button>
+        </div>
+      </div>
+
+      <div className="tables-list">
+        {filteredTables.map((table: any) => (
+          <div key={table.name} className="table-group">
+            <div
+              className={`table-header ${expandedTables.has(table.name) ? 'expanded' : ''}`}
+              onClick={() => toggleTable(table.name)}
+            >
+              <span className="table-expand-icon">{expandedTables.has(table.name) ? '▼' : '▶'}</span>
+              <span className="table-icon">▦</span>
+              <span className="table-name">{table.name}</span>
+              <span className="table-field-count">{table.fields?.length || 0} fields</span>
+            </div>
+            {expandedTables.has(table.name) && (
+              <div className="fields-list">
+                {(table.fields || []).map((field: string, idx: number) => (
+                  <div key={idx} className="field-item">
+                    <span className="field-icon">◇</span>
+                    <span className="field-name">{field}</span>
+                  </div>
+                ))}
+                {table.fields?.length === 0 && (
+                  <div className="field-item empty">No fields</div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {filteredTables.length === 0 && filter && (
+          <div className="no-results">No tables or fields match "{filter}"</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============ SHEETS ============
+function SheetsGrid({ data, callTool, openLink }: { data: any; callTool: any; openLink: (url: string) => void }) {
+  const [filter, setFilter] = useState("");
+  const allSheets = data.sheets || [];
+
+  const filtered = allSheets.filter((sheet: any) => {
+    if (!filter) return true;
+    return sheet.title?.toLowerCase().includes(filter.toLowerCase());
+  });
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filtered.length} sheet{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allSheets.length})`}</span>
+        {data.tenantUrl && data.appId && (
+          <button className="btn-link" onClick={() => openLink(`${data.tenantUrl}/sense/app/${data.appId}`)}>
+            <ExternalLink size={12} /> Open App
+          </button>
+        )}
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search sheets..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      <div className="results-list">
+        {filtered.map((sheet: any, i: number) => (
+          <button
+            key={sheet.id}
+            className="result-row"
+            onClick={() => callTool("sheet_details", { appId: data.appId, sheetId: sheet.id })}
+          >
+            <span className="result-num">{i + 1}</span>
+            <span className="result-icon"><Layers size={16} /></span>
+            <span className="result-name">{sheet.title}</span>
+            {data.tenantUrl && (
+              <span
+                className="result-link"
+                onClick={(e) => { e.stopPropagation(); openLink(`${data.tenantUrl}/sense/app/${data.appId}/sheet/${sheet.id}`); }}
+              >
+                <ExternalLink size={14} />
+              </span>
+            )}
+            <span className="result-arrow"><ChevronRight size={16} /></span>
+          </button>
+        ))}
+        {filtered.length === 0 && <div className="empty-state">No sheets match "{filter}"</div>}
+      </div>
+    </div>
+  );
+}
+
+function SheetDetail({ data, openLink }: { data: any; openLink: (url: string) => void }) {
+  const objects = data.objects || [];
+
+  // Group objects by type
+  const byType = objects.reduce((acc: any, obj: any) => {
+    const t = obj.type || "unknown";
+    if (!acc[t]) acc[t] = [];
+    acc[t].push(obj);
+    return acc;
+  }, {});
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{data.title || "Sheet Details"}</span>
+        <span className="results-badge">{objects.length} objects</span>
+      </div>
+      {data.tenantUrl && data.appId && data.sheetId && (
+        <div className="results-toolbar">
+          <button
+            className="result-action-btn"
+            onClick={() => openLink(`${data.tenantUrl}/sense/app/${data.appId}/sheet/${data.sheetId}`)}
+          >
+            <ExternalLink size={14} /> Open in Qlik
+          </button>
+        </div>
+      )}
+      {data.description && <div className="results-subtitle">{data.description}</div>}
+      <div className="objects-by-type">
+        {Object.entries(byType).map(([type, objs]: [string, any]) => (
+          <div key={type} className="object-type-group">
+            <div className="object-type-header">
+              <span className="object-type-name">{type}</span>
+              <span className="object-type-count">{objs.length}</span>
+            </div>
+            <div className="object-list">
+              {objs.map((obj: any) => (
+                <div key={obj.id} className="object-item">
+                  <span className="object-title">{obj.title || obj.id}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============ FIELD VALUES ============
+// Helper to detect if field values look like dates
+function isDateField(fieldName: string, values: any[]): boolean {
+  const dateKeywords = ['date', 'time', 'day', 'month', 'year', 'week', 'tarih', 'gün', 'ay', 'yıl'];
+  const lowerName = fieldName.toLowerCase();
+  if (dateKeywords.some(kw => lowerName.includes(kw))) return true;
+
+  // Check if values look like dates (sample first 5)
+  const sampleValues = values.slice(0, 5).map(v => v.text);
+  const datePatterns = [
+    /^\d{4}-\d{2}-\d{2}$/, // 2024-01-15
+    /^\d{2}\/\d{2}\/\d{4}$/, // 01/15/2024
+    /^\d{2}\.\d{2}\.\d{4}$/, // 15.01.2024
+    /^\d{1,2}\s+\w+\s+\d{4}$/, // 15 Jan 2024
+  ];
+  return sampleValues.some(val => datePatterns.some(p => p.test(val)));
+}
+
+// Date Picker Component for Date Fields
+function DateFieldPicker({ data, callTool }: { data: any; callTool: any }) {
+  const [mode, setMode] = useState<'single' | 'multiple' | 'range'>('range');
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
+  const [viewMonth, setViewMonth] = useState(new Date());
+
+  // Format date to string matching Qlik format
+  const formatDate = (d: Date) => {
+    return d.toISOString().split('T')[0]; // YYYY-MM-DD
+  };
+
+  const formatDisplayDate = (d: Date | null) => {
+    if (!d) return '';
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  // Generate calendar days
+  const generateCalendarDays = (month: Date) => {
+    const year = month.getFullYear();
+    const m = month.getMonth();
+    const firstDay = new Date(year, m, 1);
+    const lastDay = new Date(year, m + 1, 0);
+    const days: (Date | null)[] = [];
+
+    // Add empty slots for days before first day
+    for (let i = 0; i < firstDay.getDay(); i++) {
+      days.push(null);
+    }
+
+    // Add all days of month
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      days.push(new Date(year, m, d));
+    }
+
+    return days;
+  };
+
+  const prevMonth = () => {
+    setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1));
+  };
+
+  const nextMonth = () => {
+    setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1));
+  };
+
+  const isInRange = (d: Date) => {
+    if (!startDate || !endDate) return false;
+    return d >= startDate && d <= endDate;
+  };
+
+  const isSelected = (d: Date) => {
+    const dateStr = formatDate(d);
+    if (mode === 'single') return startDate && formatDate(startDate) === dateStr;
+    if (mode === 'multiple') return selectedDates.has(dateStr);
+    if (mode === 'range') return isInRange(d) || (startDate && formatDate(startDate) === dateStr) || (endDate && formatDate(endDate) === dateStr);
+    return false;
+  };
+
+  const handleDayClick = (d: Date) => {
+    const dateStr = formatDate(d);
+
+    if (mode === 'single') {
+      setStartDate(d);
+      setEndDate(null);
+      setSelectedDates(new Set());
+    } else if (mode === 'multiple') {
+      const newSelected = new Set(selectedDates);
+      if (newSelected.has(dateStr)) {
+        newSelected.delete(dateStr);
+      } else {
+        newSelected.add(dateStr);
+      }
+      setSelectedDates(newSelected);
+    } else if (mode === 'range') {
+      if (!startDate || (startDate && endDate)) {
+        setStartDate(d);
+        setEndDate(null);
+      } else {
+        if (d < startDate) {
+          setEndDate(startDate);
+          setStartDate(d);
+        } else {
+          setEndDate(d);
+        }
+      }
+    }
+  };
+
+  const applyPreset = (preset: string) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let start: Date;
+    let end: Date = today;
+
+    switch (preset) {
+      case 'today':
+        start = today;
+        break;
+      case 'yesterday':
+        start = new Date(today);
+        start.setDate(start.getDate() - 1);
+        end = start;
+        break;
+      case 'last7':
+        start = new Date(today);
+        start.setDate(start.getDate() - 6);
+        break;
+      case 'last30':
+        start = new Date(today);
+        start.setDate(start.getDate() - 29);
+        break;
+      case 'thisMonth':
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        break;
+      case 'lastMonth':
+        start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        end = new Date(today.getFullYear(), today.getMonth(), 0);
+        break;
+      case 'thisYear':
+        start = new Date(today.getFullYear(), 0, 1);
+        break;
+      case 'lastYear':
+        start = new Date(today.getFullYear() - 1, 0, 1);
+        end = new Date(today.getFullYear() - 1, 11, 31);
+        break;
+      default:
+        return;
+    }
+
+    setMode('range');
+    setStartDate(start);
+    setEndDate(end);
+    setViewMonth(start);
+  };
+
+  const applySelection = () => {
+    let selectedValues: string[] = [];
+
+    if (mode === 'single' && startDate) {
+      selectedValues = [formatDate(startDate)];
+    } else if (mode === 'multiple') {
+      selectedValues = Array.from(selectedDates);
+    } else if (mode === 'range' && startDate && endDate) {
+      // Generate all dates in range
+      const current = new Date(startDate);
+      while (current <= endDate) {
+        selectedValues.push(formatDate(current));
+        current.setDate(current.getDate() + 1);
+      }
+    }
+
+    if (selectedValues.length > 0) {
+      callTool("select", { appId: data.appId, selections: [{ field: data.fieldName, values: selectedValues }] });
+    }
+  };
+
+  const clearSelection = () => {
+    setStartDate(null);
+    setEndDate(null);
+    setSelectedDates(new Set());
+  };
+
+  const getSelectionCount = () => {
+    if (mode === 'single') return startDate ? 1 : 0;
+    if (mode === 'multiple') return selectedDates.size;
+    if (mode === 'range' && startDate && endDate) {
+      const diff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      return diff;
+    }
+    return 0;
+  };
+
+  const month1 = viewMonth;
+  const month2 = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1);
+
+  return (
+    <div className="date-picker-panel">
+      <div className="date-picker-header">
+        <span className="date-picker-title">{data.fieldName}</span>
+        <div className="date-picker-modes">
+          <button className={`mode-btn ${mode === 'single' ? 'active' : ''}`} onClick={() => setMode('single')}>Single</button>
+          <button className={`mode-btn ${mode === 'multiple' ? 'active' : ''}`} onClick={() => setMode('multiple')}>Multiple</button>
+          <button className={`mode-btn ${mode === 'range' ? 'active' : ''}`} onClick={() => setMode('range')}>Range</button>
+        </div>
+      </div>
+
+      <div className="date-picker-inputs">
+        <div className="date-input">
+          <Clock size={14} />
+          <span>{startDate ? formatDisplayDate(startDate) : 'Start Date'}</span>
+        </div>
+        {mode === 'range' && (
+          <>
+            <span className="date-separator">→</span>
+            <div className="date-input">
+              <Clock size={14} />
+              <span>{endDate ? formatDisplayDate(endDate) : 'End Date'}</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="date-picker-body">
+        <div className="calendars-container">
+          <button className="cal-nav-btn" onClick={prevMonth}>‹</button>
+
+          <div className="calendar">
+            <div className="cal-header">
+              {month1.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </div>
+            <div className="cal-weekdays">
+              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+                <div key={d} className="cal-weekday">{d}</div>
+              ))}
+            </div>
+            <div className="cal-days">
+              {generateCalendarDays(month1).map((day, i) => (
+                <div
+                  key={i}
+                  className={`cal-day ${!day ? 'empty' : ''} ${day && isSelected(day) ? 'selected' : ''} ${day && isInRange(day) ? 'in-range' : ''}`}
+                  onClick={() => day && handleDayClick(day)}
+                >
+                  {day?.getDate()}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="calendar">
+            <div className="cal-header">
+              {month2.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </div>
+            <div className="cal-weekdays">
+              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+                <div key={d} className="cal-weekday">{d}</div>
+              ))}
+            </div>
+            <div className="cal-days">
+              {generateCalendarDays(month2).map((day, i) => (
+                <div
+                  key={i}
+                  className={`cal-day ${!day ? 'empty' : ''} ${day && isSelected(day) ? 'selected' : ''} ${day && isInRange(day) ? 'in-range' : ''}`}
+                  onClick={() => day && handleDayClick(day)}
+                >
+                  {day?.getDate()}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button className="cal-nav-btn" onClick={nextMonth}>›</button>
+        </div>
+
+        <div className="date-presets">
+          <div className="presets-title">Quick Select</div>
+          <button className="preset-btn" onClick={() => applyPreset('today')}>Today</button>
+          <button className="preset-btn" onClick={() => applyPreset('yesterday')}>Yesterday</button>
+          <button className="preset-btn" onClick={() => applyPreset('last7')}>Last 7 days</button>
+          <button className="preset-btn" onClick={() => applyPreset('last30')}>Last 30 days</button>
+          <button className="preset-btn" onClick={() => applyPreset('thisMonth')}>This Month</button>
+          <button className="preset-btn" onClick={() => applyPreset('lastMonth')}>Last Month</button>
+          <button className="preset-btn" onClick={() => applyPreset('thisYear')}>This Year</button>
+          <button className="preset-btn" onClick={() => applyPreset('lastYear')}>Last Year</button>
+        </div>
+      </div>
+
+      <div className="date-picker-footer">
+        <span className="selection-info">{getSelectionCount()} date{getSelectionCount() !== 1 ? 's' : ''} selected</span>
+        <div className="date-picker-actions">
+          <button className="btn secondary" onClick={clearSelection}>Clear</button>
+          <button className="btn primary" onClick={applySelection} disabled={getSelectionCount() === 0}>
+            Apply Selection
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FieldValuesView({ data, callTool }: { data: any; callTool: any }) {
+  const values = data.values || [];
+
+  // Check if this is a date field - check before useState so we can set default
+  const isDate = isDateField(data.fieldName, values);
+
+  const [filter, setFilter] = useState("");
+  const [selectedValues, setSelectedValues] = useState<Set<string>>(new Set());
+  const [showDatePicker, setShowDatePicker] = useState(isDate); // Default to calendar for date fields
+
+  const filteredValues = filter
+    ? values.filter((v: any) => v.text.toLowerCase().includes(filter.toLowerCase()))
+    : values;
+
+  const pagination = usePagination(filteredValues, 20);
+
+  const getStateClass = (state: string) => {
+    switch (state) {
+      case "S": return "selected";
+      case "X": return "excluded";
+      case "A": return "alternative";
+      default: return "optional";
+    }
+  };
+
+  const toggleValue = (text: string) => {
+    const newSelected = new Set(selectedValues);
+    if (newSelected.has(text)) {
+      newSelected.delete(text);
+    } else {
+      newSelected.add(text);
+    }
+    setSelectedValues(newSelected);
+  };
+
+  const selectAll = () => {
+    setSelectedValues(new Set(filteredValues.map((v: any) => v.text)));
+  };
+
+  const clearSelection = () => {
+    setSelectedValues(new Set());
+  };
+
+  const applySelection = () => {
+    if (selectedValues.size > 0) {
+      callTool("select", { appId: data.appId, selections: [{ field: data.fieldName, values: Array.from(selectedValues) }] });
+    }
+  };
+
+  // If date field and user wants date picker
+  if (isDate && showDatePicker) {
+    return <DateFieldPicker data={data} callTool={callTool} />;
+  }
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filteredValues.length} value{filteredValues.length !== 1 ? 's' : ''}{filter && ` (filtered)`}</span>
+        <span className="results-total">{data.totalCount} total</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search values..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <div className="toolbar-actions">
+          {isDate && (
+            <button className="btn-small date-btn" onClick={() => setShowDatePicker(true)}>
+              <Clock size={12} /> Calendar
+            </button>
+          )}
+          <button className="btn-small" onClick={selectAll}>Select All</button>
+          <button className="btn-small" onClick={clearSelection}>Clear</button>
+        </div>
+      </div>
+      {selectedValues.size > 0 && (
+        <div className="selection-bar">
+          <span>{selectedValues.size} selected</span>
+          <button className="btn primary small" onClick={applySelection}>
+            Apply Selection
+          </button>
+        </div>
+      )}
+      <div className="field-values-grid">
+        {pagination.items.map((v: any, i: number) => (
+          <div
+            key={i}
+            className={`fv-item ${getStateClass(v.state)} ${selectedValues.has(v.text) ? 'checked' : ''}`}
+            onClick={() => toggleValue(v.text)}
+          >
+            <input
+              type="checkbox"
+              checked={selectedValues.has(v.text)}
+              onChange={() => {}}
+              className="fv-checkbox"
+            />
+            <span className="fv-text">{v.text}</span>
+            {v.state === "S" && <span className="fv-badge selected">●</span>}
+            {v.state === "X" && <span className="fv-badge excluded">○</span>}
+          </div>
+        ))}
+        {pagination.items.length === 0 && <div className="empty-state">No values match "{filter}"</div>}
+      </div>
+      {pagination.totalPages > 1 && <Pagination {...pagination} />}
+      {values.length < data.totalCount && (
+        <div className="results-footer">Showing {values.length} of {data.totalCount} values</div>
+      )}
+    </div>
+  );
+}
+
+// ============ MASTER ITEMS ============
+function MasterDimensionsView({ data }: { data: any }) {
+  const [filter, setFilter] = useState("");
+  const allDimensions = data.dimensions || [];
+
+  const filtered = allDimensions.filter((dim: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return dim.title?.toLowerCase().includes(search) ||
+           dim.fields?.some((f: string) => f.toLowerCase().includes(search));
+  });
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filtered.length} dimension{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allDimensions.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search dimensions..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      <div className="results-list">
+        {filtered.map((dim: any) => (
+          <div key={dim.id} className="result-row static">
+            <span className="result-name">{dim.title}</span>
+            {dim.fields?.length > 0 && <span className="result-meta">{dim.fields.join(", ")}</span>}
+          </div>
+        ))}
+        {filtered.length === 0 && <div className="empty-state">No dimensions match "{filter}"</div>}
+      </div>
+    </div>
+  );
+}
+
+function MasterMeasuresView({ data }: { data: any }) {
+  const [filter, setFilter] = useState("");
+  const allMeasures = data.measures || [];
+
+  const filtered = allMeasures.filter((m: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return m.title?.toLowerCase().includes(search) ||
+           m.expression?.toLowerCase().includes(search);
+  });
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filtered.length} measure{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allMeasures.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search measures..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      <div className="results-list">
+        {filtered.map((m: any) => (
+          <div key={m.id} className="result-row static">
+            <span className="result-name">{m.title}</span>
+            {m.expression && <code className="result-expr">{m.expression}</code>}
+          </div>
+        ))}
+        {filtered.length === 0 && <div className="empty-state">No measures match "{filter}"</div>}
+      </div>
+    </div>
+  );
+}
+
+// ============ GLOSSARY ============
+function GlossariesGrid({ data, callTool }: { data: any; callTool: any }) {
+  const glossaries = data.glossaries || [];
+
+  return (
+    <Card header={{ label: "Business Glossary", title: `${glossaries.length} Glossaries`, gradient: "teal" }}>
+      <div className="glossaries-grid">
+        {glossaries.map((g: any) => (
+          <div
+            key={g.id}
+            className="glossary-card"
+            onClick={() => callTool("glossary_details", { glossaryId: g.id })}
+          >
+            <div className="glossary-icon">📖</div>
+            <div className="glossary-info">
+              <div className="glossary-name">{g.name}</div>
+              {g.description && <div className="glossary-desc">{g.description}</div>}
+            </div>
+          </div>
+        ))}
+        {glossaries.length === 0 && <div className="empty-state">No glossaries found</div>}
+      </div>
+    </Card>
+  );
+}
+
+function GlossaryDetail({ data, callTool }: { data: any; callTool: any }) {
+  const [activeTab, setActiveTab] = useState<"terms" | "categories">("terms");
+  const terms = data.terms || [];
+  const categories = data.categories || [];
+
+  return (
+    <Card header={{ label: "Glossary", title: data.name || "Glossary", gradient: "teal" }}>
+      {data.description && <p className="glossary-description">{data.description}</p>}
+
+      <div className="glossary-tabs">
+        <button
+          className={`glossary-tab ${activeTab === "terms" ? "active" : ""}`}
+          onClick={() => setActiveTab("terms")}
+        >
+          Terms ({terms.length})
+        </button>
+        <button
+          className={`glossary-tab ${activeTab === "categories" ? "active" : ""}`}
+          onClick={() => setActiveTab("categories")}
+        >
+          Categories ({categories.length})
+        </button>
+      </div>
+
+      {activeTab === "terms" && (
+        <div className="terms-list">
+          {terms.map((term: any) => (
+            <div
+              key={term.id}
+              className="term-item"
+              onClick={() => callTool("glossary_term", { glossaryId: data.id, termId: term.id })}
+            >
+              <div className="term-name">{term.name}</div>
+              {term.description && <div className="term-preview">{term.description.slice(0, 100)}...</div>}
+              {term.status && <span className={`term-status ${term.status.toLowerCase()}`}>{term.status}</span>}
+            </div>
+          ))}
+          {terms.length === 0 && <div className="empty-state">No terms</div>}
+        </div>
+      )}
+
+      {activeTab === "categories" && (
+        <div className="categories-list">
+          {categories.map((cat: any) => (
+            <div key={cat.id} className="category-item">
+              <span className="category-icon">📁</span>
+              <span className="category-name">{cat.name}</span>
+            </div>
+          ))}
+          {categories.length === 0 && <div className="empty-state">No categories</div>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function GlossaryTermView({ data }: { data: any }) {
+  return (
+    <Card header={{ label: "Term", title: data.name || "Term", gradient: "teal" }}>
+      <div className="term-detail">
+        {data.description && (
+          <div className="term-definition">
+            <strong>Definition:</strong>
+            <p>{data.description}</p>
+          </div>
+        )}
+        {data.status && (
+          <div className="term-meta">
+            <span className="label">Status:</span>
+            <span className={`term-status ${data.status.toLowerCase()}`}>{data.status}</span>
+          </div>
+        )}
+        {data.categoryId && (
+          <div className="term-meta">
+            <span className="label">Category:</span>
+            <span>{data.categoryId}</span>
+          </div>
+        )}
+        {data.createdAt && (
+          <div className="term-meta">
+            <span className="label">Created:</span>
+            <span>{new Date(data.createdAt).toLocaleDateString()}</span>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ============ DATA PRODUCTS ============
+function DataProductsGrid({ data, callTool }: { data: any; callTool: any }) {
+  const products = data.products || [];
+
+  return (
+    <Card header={{ label: "Data Products", title: `${products.length} Products`, gradient: "purple" }}>
+      <div className="data-products-list">
+        {products.map((product: any) => (
+          <div
+            key={product.id}
+            className="data-product-card"
+            onClick={() => callTool("data_product_details", { productId: product.id })}
+          >
+            <div className="data-product-icon">📦</div>
+            <div className="data-product-info">
+              <div className="data-product-name">{product.name}</div>
+              {product.description && <div className="data-product-desc">{product.description}</div>}
+              <div className="data-product-meta">
+                {product.updatedAt && <span>Updated: {new Date(product.updatedAt).toLocaleDateString()}</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+        {products.length === 0 && <div className="empty-state">No data products found</div>}
+      </div>
+    </Card>
+  );
+}
+
+function DataProductDetail({ data }: { data: any }) {
+  return (
+    <Card header={{ label: "Data Product", title: data.name || "Product Details", gradient: "purple" }}>
+      <div className="data-product-detail">
+        {data.description && <p className="product-description">{data.description}</p>}
+        <div className="product-meta-grid">
+          {data.ownerId && <div className="meta-item"><strong>Owner:</strong> {data.ownerId}</div>}
+          {data.spaceId && <div className="meta-item"><strong>Space:</strong> {data.spaceId}</div>}
+          {data.createdAt && <div className="meta-item"><strong>Created:</strong> {new Date(data.createdAt).toLocaleDateString()}</div>}
+          {data.updatedAt && <div className="meta-item"><strong>Updated:</strong> {new Date(data.updatedAt).toLocaleDateString()}</div>}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ============ DATASET PROFILE ============
+function DatasetProfileView({ data }: { data: any }) {
+  const profile = data.profile || {};
+
+  return (
+    <Card header={{ label: "Dataset Profile", title: "Data Quality & Statistics", gradient: "cyan" }}>
+      <div className="profile-content">
+        {profile.rowCount !== undefined && (
+          <div className="profile-stat">
+            <span className="stat-label">Rows</span>
+            <span className="stat-value">{profile.rowCount.toLocaleString()}</span>
+          </div>
+        )}
+        {profile.columnCount !== undefined && (
+          <div className="profile-stat">
+            <span className="stat-label">Columns</span>
+            <span className="stat-value">{profile.columnCount}</span>
+          </div>
+        )}
+        {profile.completeness !== undefined && (
+          <div className="profile-stat">
+            <span className="stat-label">Completeness</span>
+            <span className="stat-value">{(profile.completeness * 100).toFixed(1)}%</span>
+          </div>
+        )}
+        {profile.columns && profile.columns.length > 0 && (
+          <div className="profile-columns">
+            <h4>Column Statistics</h4>
+            {profile.columns.map((col: any, idx: number) => (
+              <div key={idx} className="profile-column">
+                <span className="col-name">{col.name}</span>
+                <span className="col-type">{col.type}</span>
+                {col.nullCount !== undefined && <span className="col-nulls">{col.nullCount} nulls</span>}
+                {col.distinctCount !== undefined && <span className="col-distinct">{col.distinctCount} distinct</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        {!profile.rowCount && !profile.columns && (
+          <div className="empty-state">Profile data not available</div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ============ DATASET SAMPLE ============
+function DatasetSampleView({ data }: { data: any }) {
+  const rows = data.data || [];
+  const columns = data.columns || (rows.length > 0 ? Object.keys(rows[0]) : []);
+
+  return (
+    <Card header={{ label: "Sample Data", title: `${rows.length} Rows`, gradient: "blue" }}>
+      {rows.length > 0 ? (
+        <div className="data-table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {columns.map((col: string, idx: number) => (
+                  <th key={idx}>{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row: any, idx: number) => (
+                <tr key={idx}>
+                  {columns.map((col: string, cidx: number) => (
+                    <td key={cidx}>{String(row[col] ?? "")}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty-state">No sample data available</div>
+      )}
+    </Card>
+  );
+}
+
+// ============ BOOKMARKS ============
+function BookmarksView({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
+  const bookmarks = data.bookmarks || [];
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{bookmarks.length} bookmarks</span>
+      </div>
+      <div className="results-list">
+        {bookmarks.map((bm: any) => (
+          <div key={bm.id} className="result-row">
+            <span className="result-icon">🔖</span>
+            <span className="result-name">{bm.title}</span>
+            {bm.description && <span className="result-meta">{bm.description}</span>}
+            <button
+              className="result-action-btn"
+              onClick={() => sendAction(`Apply bookmark "${bm.title}"`, { appId: data.appId, bookmarkId: bm.id, bookmarkName: bm.title })}
+            >
+              Apply
+            </button>
+          </div>
+        ))}
+        {bookmarks.length === 0 && <div className="empty-state">No bookmarks in this app</div>}
+      </div>
+    </div>
+  );
+}
+
+// ============ VARIABLES ============
+function VariablesView({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
+  const variables = data.variables || [];
+  const appId = data.appId;
+  const [filter, setFilter] = useState("");
+  const [editingVar, setEditingVar] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const filtered = variables.filter((v: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return v.name?.toLowerCase().includes(search) ||
+           v.definition?.toLowerCase().includes(search);
+  });
+
+  const startEdit = (v: any) => {
+    setEditingVar(v.name);
+    setEditValue(v.definition || "");
+  };
+
+  const cancelEdit = () => {
+    setEditingVar(null);
+    setEditValue("");
+  };
+
+  const saveVariable = (varName: string) => {
+    if (!appId) return;
+    sendAction(`Set variable "${varName}" to: ${editValue}`, { appId, variableName: varName, value: editValue });
+    setEditingVar(null);
+    setEditValue("");
+  };
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filtered.length} variable{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${variables.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search variables..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      <div className="variables-list-scrollable">
+        {filtered.map((v: any) => (
+          <div key={v.id || v.name} className={`variable-card-v2 ${editingVar === v.name ? 'editing' : ''}`}>
+            <div className="var-header">
+              <div className="variable-name">{v.name}</div>
+              {v.isScriptCreated && <span className="variable-tag">SCRIPT</span>}
+              {!v.isScriptCreated && editingVar !== v.name && (
+                <button className="var-edit-btn" onClick={() => startEdit(v)} title="Edit variable">
+                  ✎
+                </button>
+              )}
+            </div>
+            {editingVar === v.name ? (
+              <div className="var-edit-form">
+                <textarea
+                  className="var-edit-input"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  rows={3}
+                  autoFocus
+                />
+                <div className="var-edit-actions">
+                  <button className="btn secondary small" onClick={cancelEdit}>
+                    Cancel
+                  </button>
+                  <button className="btn primary small" onClick={() => saveVariable(v.name)}>
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="variable-definition" onClick={() => !v.isScriptCreated && startEdit(v)}>
+                {v.definition || "—"}
+              </div>
+            )}
+          </div>
+        ))}
+        {filtered.length === 0 && <div className="empty-state">{filter ? `No variables match "${filter}"` : "No variables in this app"}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ============ STORIES ============
+function StoriesView({ data }: { data: any }) {
+  const stories = data.stories || [];
+
+  return (
+    <Card header={{ label: "Stories", title: `${stories.length} Stories`, gradient: "pink" }}>
+      <div className="stories-grid">
+        {stories.map((story: any) => (
+          <div key={story.id} className="story-card">
+            <div className="story-icon">📖</div>
+            <div className="story-info">
+              <div className="story-title">{story.title}</div>
+              {story.description && <div className="story-desc">{story.description}</div>}
+            </div>
+          </div>
+        ))}
+        {stories.length === 0 && <div className="empty-state">No stories in this app</div>}
+      </div>
+    </Card>
+  );
+}
+
+// ============ APP SCRIPT ============
+// Qlik Script Keywords - Based on MattFryer/Qlik-Notepad-plus-plus
+const QLIK_SCRIPT_STATEMENTS = /\b(ADD|ALIAS|AUTOGENERATE|BINARY|BUFFER|CALL|COMMENT|CONCATENATE|CONNECT|CROSSTABLE|DERIVE|DIMENSION|DIRECTORY|DISCONNECT|DROP|EACH|ENDSUB|ENDSWITCH|EXECUTE|EXIT|FIRST|FLUSHLOG|FORCE|FOR|FROM|GENERIC|GROUP\s+BY|HIERARCHY|HIERARCHYBELONGSTO|IF|INLINE|INNER|INPUTFIELD|INTERVALMATCH|INTO|JOIN|KEEP|LEFT|LET|LIB|LOAD|LOOSEN|LOOP|MAP|MAPPING|MEASURE|NATIVE|NEXT|NOCONCATENATE|NULLASNULL|NULLASVALUE|ODBC|OLEDB|OPTIMIZE|ORDER\s+BY|OUTER|QUALIFY|RENAME|REPLACE|RESIDENT|RIGHT|SAMPLE|SECTION|SELECT|SEMANTIC|SET|SLEEP|SQL|SQLCOLUMNS|SQLTABLES|SQLTYPES|STAR|STEP|STORE|SUB|SWITCH|TAG|THEN|TO|TRACE|UNLESS|UNMAP|UNQUALIFY|UNTAG|USING|WHEN|WHERE|WITH|CASE|DEFAULT|DO|WHILE|UNTIL|ELSE|ELSEIF|END)\b/gi;
+
+const QLIK_AGGREGATION_FUNCTIONS = /\b(Avg|Chi2Test_chi2|Chi2Test_df|Chi2Test_p|Concat|Correl|Count|FirstSortedValue|FirstValue|Fractile|Kurtosis|LastValue|LINEST_B|LINEST_DF|LINEST_F|LINEST_M|LINEST_R2|LINEST_SEB|LINEST_SEM|LINEST_SEY|LINEST_SSREG|LINEST_SSRESID|Max|MaxString|Median|Min|MinString|MissingCount|Mode|NullCount|NumericCount|Only|Skew|Stdev|Sterr|STEYX|Sum|TextCount|TTest_conf|TTest_df|TTest_dif|TTest_lower|TTest_sig|TTest_sterr|TTest_t|TTest_upper|TTest1_conf|TTest1_df|TTest1_dif|TTest1_lower|TTest1_sig|TTest1_sterr|TTest1_t|TTest1_upper|TTestw_conf|TTestw_df|TTestw_dif|TTestw_lower|TTestw_sig|TTestw_sterr|TTestw_t|TTestw_upper|TTest1w_conf|TTest1w_df|TTest1w_dif|TTest1w_lower|TTest1w_sig|TTest1w_sterr|TTest1w_t|TTest1w_upper|ZTest_conf|ZTest_dif|ZTest_lower|ZTest_sig|ZTest_sterr|ZTest_z|ZTest_upper|ZTestw_conf|ZTestw_dif|ZTestw_lower|ZTestw_sig|ZTestw_sterr|ZTestw_z|ZTestw_upper)\b/gi;
+
+const QLIK_STRING_FUNCTIONS = /\b(ApplyCodePage|Capitalize|Chr|FindOneOf|Index|KeepChar|Left|Len|Lower|LTrim|Mid|Ord|PurgeChar|Repeat|Replace|Right|RTrim|SubField|SubStringCount|Text|TextBetween|Trim|Upper|Evaluate|Hash128|Hash160|Hash256|Match|MixMatch|WildMatch|WildMatch5)\b/gi;
+
+const QLIK_DATE_FUNCTIONS = /\b(AddMonths|AddYears|Age|ConvertToLocalTime|Date|Date#|Day|DayEnd|DayLight|DayName|DayNumberOfQuarter|DayNumberOfYear|DayStart|FirstWorkDate|GMT|Hour|InDay|InDayToTime|InLunarWeek|InLunarWeekToDate|InMonth|InMonths|InMonthsToDate|InMonthToDate|InQuarter|InQuarterToDate|InWeek|InWeekToDate|InYear|InYearToDate|Interval|Interval#|LastWorkDate|LocalTime|LunarWeekEnd|LunarWeekName|LunarWeekStart|MakeDate|MakeTime|MakeWeekDate|Minute|Month|MonthEnd|MonthName|MonthsEnd|MonthsName|MonthsStart|MonthStart|NetworkDays|Now|QuarterEnd|QuarterName|QuarterStart|ReloadTime|Second|SetDateYear|SetDateYearMonth|Time|Time#|Timestamp|Timestamp#|TimeZone|Today|UTC|Week|WeekDay|WeekEnd|WeekName|WeekStart|WeekYear|Year|YearEnd|YearName|YearStart|Year2Date|YearToDate)\b/gi;
+
+const QLIK_MATH_FUNCTIONS = /\b(Abs|Acos|Asin|Atan|Atan2|BitCount|Ceil|Combin|Cos|Cosh|Div|E|Even|Exp|Fabs|Fact|Floor|Fmod|Frac|Log|Log10|Mod|Odd|Permut|Pi|Pow|Rand|Round|Sign|Sin|Sinh|Sqr|Sqrt|Tan|Tanh)\b/gi;
+
+const QLIK_RANGE_FUNCTIONS = /\b(RangeAvg|RangeCorrel|RangeCount|RangeFractile|RangeIRR|RangeKurtosis|RangeMax|RangeMaxString|RangeMin|RangeMinString|RangeMissingCount|RangeMode|RangeNPV|RangeNullCount|RangeNumericCount|RangeOnly|RangeSkew|RangeStdev|RangeSum|RangeTextCount|RangeXIRR|RangeXNPV)\b/gi;
+
+const QLIK_CONDITIONAL_FUNCTIONS = /\b(Alt|Class|Coalesce|If|IsNull|IsNum|IsText|Null|Pick)\b/gi;
+
+const QLIK_COLOR_FUNCTIONS = /\b(ARGB|Black|Blue|Brown|Cyan|DarkGray|Green|HSL|LightBlue|LightCyan|LightGray|LightGreen|LightMagenta|LightRed|Magenta|QlikTechBlue|QlikTechGray|QlikViewGray|Red|RGB|SysColor|White|Yellow|ColorMapHue|ColorMapJet|ColorMix1|ColorMix2)\b/gi;
+
+const QLIK_FILE_FUNCTIONS = /\b(Attribute|ConnectString|FileBaseName|FileDir|FileExtension|FileName|FilePath|FileSize|FileTime|GetFolderPath|QvdCreateTime|QvdFieldName|QvdNoOfFields|QvdNoOfRecords|QvdTableName)\b/gi;
+
+const QLIK_TABLE_FUNCTIONS = /\b(FieldIndex|FieldName|FieldNumber|FieldValue|FieldValueCount|NoOfFields|NoOfRows|NoOfTables|TableName|TableNumber)\b/gi;
+
+const QLIK_SYSTEM_FUNCTIONS = /\b(Author|ClientPlatform|ComputerName|DocumentName|DocumentPath|DocumentTitle|GetRegistryString|OSUser|QlikViewVersion|QVUser|ReloadTime)\b/gi;
+
+const QLIK_INTER_RECORD = /\b(Above|After|Before|Below|Bottom|Column|Dimensionality|Exists|FieldIndex|First|Last|NoOfColumns|NoOfRows|Peek|Previous|RecNo|RowNo|SecondaryDimensionality|Top)\b/gi;
+
+const QLIK_FINANCIAL_FUNCTIONS = /\b(BlackAndSchole|FV|IRR|NPV|NPER|Pmt|PV|Rate|XIRR|XNPV)\b/gi;
+
+const QLIK_MAPPING_FUNCTIONS = /\b(ApplyMap|Lookup|MapSubString)\b/gi;
+
+const QLIK_SYSTEM_VARIABLES = /\b(HidePrefix|HideSuffix|ThousandSep|DecimalSep|MoneyFormat|TimeFormat|DateFormat|TimestampFormat|MonthNames|DayNames|LongMonthNames|LongDayNames|FirstWeekDay|BrokenWeeks|ReferenceDay|FirstMonthOfYear|CollationLocale|NullInterpret|NullValue|NullDisplay|OtherSymbol)\b/gi;
+
+const QLIK_OPERATORS = /\b(AND|OR|NOT|XOR|LIKE|PRECEDES|FOLLOWS)\b/gi;
+
+function AppScriptView({ data }: { data: any }) {
+  const script = data.script || "";
+  const allLines: string[] = script.split("\n");
+  const lineCount = data.lineCount || allLines.length;
+
+  // Parse tabs from script - look for //$tab or ///$tab markers
+  const parseTabs = () => {
+    const tabs: Array<{ name: string; startLine: number; endLine: number }> = [];
+    let currentTabName: string | null = null;
+    let currentTabStart = 0;
+
+    allLines.forEach((line, i) => {
+      const tabMatch = line.match(/^\/\/+\$tab\s+(.+)$/i);
+      if (tabMatch) {
+        // Close previous tab
+        if (currentTabName !== null) {
+          tabs.push({ name: currentTabName, startLine: currentTabStart, endLine: i - 1 });
+        }
+        // Start new tab
+        currentTabName = tabMatch[1].trim();
+        currentTabStart = i;
+      }
+    });
+
+    // Close last tab
+    if (currentTabName !== null) {
+      tabs.push({ name: currentTabName, startLine: currentTabStart, endLine: allLines.length - 1 });
+    }
+
+    // If no tabs found, create a single "Main" tab
+    if (tabs.length === 0) {
+      tabs.push({ name: "Main", startLine: 0, endLine: allLines.length - 1 });
+    }
+
+    return tabs;
+  };
+
+  const tabs = parseTabs();
+  const [activeTab, setActiveTab] = useState(0);
+
+  // Get lines for current tab
+  const currentTab = tabs[activeTab];
+  const tabLines = currentTab ? allLines.slice(currentTab.startLine, currentTab.endLine + 1) : allLines;
+  const startLineNum = currentTab ? currentTab.startLine + 1 : 1;
+
+  // Syntax highlighting for Qlik Load Script
+  const highlightLine = (line: string): React.ReactNode => {
+    // Patterns for Qlik script syntax - order matters for precedence
+    const patterns: Array<{ regex: RegExp; className: string }> = [
+      // Comments (must be first)
+      { regex: /(\/\/.*$)/g, className: "qs-comment" },
+      { regex: /(\/\*[\s\S]*?\*\/)/g, className: "qs-comment" },
+      { regex: /^(\s*REM\s+.*$)/gi, className: "qs-comment" },
+      // Strings
+      { regex: /('[^']*')/g, className: "qs-string" },
+      { regex: /("[^"]*")/g, className: "qs-string" },
+      // Variables $(var)
+      { regex: /(\$\([^)]+\))/g, className: "qs-variable" },
+      // Field references [Field]
+      { regex: /(\[[^\]]+\])/g, className: "qs-field" },
+      // Data sources (lib://, file extensions)
+      { regex: /(lib:\/\/[^\s\]'";,]+)/gi, className: "qs-source" },
+      { regex: /\.(qvd|qvw|qvs|txt|csv|xlsx?|xml|json|html|parquet)\b/gi, className: "qs-source" },
+      // Numbers
+      { regex: /\b(\d+\.?\d*)\b/g, className: "qs-number" },
+      // Operators
+      { regex: QLIK_OPERATORS, className: "qs-operator" },
+      // Script Statements (keywords)
+      { regex: QLIK_SCRIPT_STATEMENTS, className: "qs-keyword" },
+      // System Variables
+      { regex: QLIK_SYSTEM_VARIABLES, className: "qs-sysvar" },
+      // Aggregation Functions
+      { regex: QLIK_AGGREGATION_FUNCTIONS, className: "qs-function-agg" },
+      // String Functions
+      { regex: QLIK_STRING_FUNCTIONS, className: "qs-function-str" },
+      // Date Functions
+      { regex: QLIK_DATE_FUNCTIONS, className: "qs-function-date" },
+      // Math Functions
+      { regex: QLIK_MATH_FUNCTIONS, className: "qs-function-math" },
+      // Range Functions
+      { regex: QLIK_RANGE_FUNCTIONS, className: "qs-function-range" },
+      // Conditional Functions
+      { regex: QLIK_CONDITIONAL_FUNCTIONS, className: "qs-function-cond" },
+      // Color Functions
+      { regex: QLIK_COLOR_FUNCTIONS, className: "qs-function-color" },
+      // File Functions
+      { regex: QLIK_FILE_FUNCTIONS, className: "qs-function-file" },
+      // Table Functions
+      { regex: QLIK_TABLE_FUNCTIONS, className: "qs-function-table" },
+      // System Functions
+      { regex: QLIK_SYSTEM_FUNCTIONS, className: "qs-function-sys" },
+      // Inter-Record Functions
+      { regex: QLIK_INTER_RECORD, className: "qs-function-rec" },
+      // Financial Functions
+      { regex: QLIK_FINANCIAL_FUNCTIONS, className: "qs-function-fin" },
+      // Mapping Functions
+      { regex: QLIK_MAPPING_FUNCTIONS, className: "qs-function-map" },
+    ];
+
+    const tokens: Array<{ start: number; end: number; text: string; className: string }> = [];
+
+    // Find all matches
+    patterns.forEach(({ regex, className }) => {
+      let match;
+      const re = new RegExp(regex.source, regex.flags);
+      while ((match = re.exec(line)) !== null) {
+        tokens.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          text: match[0],
+          className,
+        });
+      }
+    });
+
+    // Sort by position and remove overlaps (first match wins)
+    tokens.sort((a, b) => a.start - b.start);
+    const filtered: typeof tokens = [];
+    let lastEnd = 0;
+    tokens.forEach(t => {
+      if (t.start >= lastEnd) {
+        filtered.push(t);
+        lastEnd = t.end;
+      }
+    });
+
+    // Build result with spans
+    if (filtered.length === 0) return line;
+
+    const parts: React.ReactNode[] = [];
+    let pos = 0;
+    filtered.forEach((t, i) => {
+      if (t.start > pos) {
+        parts.push(line.slice(pos, t.start));
+      }
+      parts.push(<span key={i} className={t.className}>{t.text}</span>);
+      pos = t.end;
+    });
+    if (pos < line.length) {
+      parts.push(line.slice(pos));
+    }
+
+    return parts;
+  };
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{lineCount} lines</span>
+        <span className="results-badge">{(script.length / 1024).toFixed(1)} KB</span>
+      </div>
+      {/* Tab bar - always show if tabs exist */}
+      {tabs.length > 0 && (
+        <div className="script-tabs">
+          {tabs.map((tab, i) => (
+            <button
+              key={i}
+              className={`script-tab ${activeTab === i ? 'active' : ''}`}
+              onClick={() => setActiveTab(i)}
+            >
+              {tab.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="script-container">
+        <div className="line-numbers">
+          {tabLines.map((_: string, i: number) => (
+            <div key={i} className="line-number">{startLineNum + i}</div>
+          ))}
+        </div>
+        <pre className="script-code-highlighted">
+          {tabLines.map((line: string, i: number) => (
+            <div key={i} className="code-line">
+              {highlightLine(line) || " "}
+            </div>
+          ))}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+// ============ APP CONNECTIONS ============
+function AppConnectionsView({ data }: { data: any }) {
+  const connections = data.connections || [];
+
+  return (
+    <Card header={{ label: "Connections", title: `${connections.length} Connections`, gradient: "indigo" }}>
+      <div className="connections-list">
+        {connections.map((conn: any) => (
+          <div key={conn.id} className="connection-card">
+            <div className="connection-icon">🔗</div>
+            <div className="connection-info">
+              <div className="connection-name">{conn.name}</div>
+              <div className="connection-type">{conn.type}</div>
+            </div>
+          </div>
+        ))}
+        {connections.length === 0 && <div className="empty-state">No connections in this app</div>}
+      </div>
+    </Card>
+  );
+}
+
+// ============ DATA CONNECTIONS (Tenant Level) ============
+function DataConnectionsGrid({ data, callTool }: { data: any; callTool: any }) {
+  const [filter, setFilter] = useState("");
+  const allConnections = data.connections || [];
+
+  const filtered = allConnections.filter((conn: any) => {
+    if (!filter) return true;
+    const search = filter.toLowerCase();
+    return conn.name?.toLowerCase().includes(search) ||
+           conn.type?.toLowerCase().includes(search);
+  });
+
+  const pagination = usePagination(filtered, 10);
+
+  // Check if connection is a folder/file type
+  const isFolderConnection = (type: string) => {
+    const folderTypes = ['datafiles', 'folder', 'qix-datafiles', 'filestorage'];
+    return folderTypes.some(ft => type?.toLowerCase().includes(ft));
+  };
+
+  return (
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{filtered.length} connection{filtered.length !== 1 ? 's' : ''}{filter && ` (filtered from ${allConnections.length})`}</span>
+      </div>
+      <div className="results-toolbar">
+        <input
+          type="text"
+          className="filter-input"
+          placeholder="Search connections..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      {pagination.items.length === 0 ? (
+        <div className="empty-state">{filter ? `No connections match "${filter}"` : "No connections found"}</div>
+      ) : (
+        <div className="results-list">
+          {pagination.items.map((conn: any) => (
+            <button
+              key={conn.id}
+              className="result-row"
+              onClick={() => callTool("data_connection_details", { connectionId: conn.id })}
+            >
+              <span className="result-icon">
+                {isFolderConnection(conn.type) ? <FolderOpen size={16} /> : <Database size={16} />}
+              </span>
+              <span className="result-name">{conn.name}</span>
+              <span className="result-meta">{conn.type}</span>
+              <span className="result-arrow"><ChevronRight size={16} /></span>
+            </button>
+          ))}
+        </div>
+      )}
+      {pagination.totalPages > 1 && <Pagination {...pagination} />}
+    </div>
+  );
+}
+
+function DataConnectionDetail({ data }: { data: any }) {
+  // The actual connection type is in qType or datasourceType, not in data.type (which is the structuredContent type)
+  const connType = data.qType || data.datasourceType || data.qConnectStatement?.split(';')[0] || "Unknown";
+  const connName = data.name || data.qName || "Connection Details";
+
+  // Check if folder type connection
+  const isFolderType = ['datafiles', 'folder', 'qix-datafiles'].some(
+    ft => connType?.toLowerCase().includes(ft)
+  );
+
+  return (
+    <Card header={{ label: "Connection", title: connName, gradient: "indigo" }}>
+      <div className="connection-detail">
+        <div className="conn-type-badge">
+          {isFolderType ? <FolderOpen size={20} /> : <Database size={20} />}
+          <span>{connType}</span>
+        </div>
+
+        <div className="detail-grid">
+          {data.qType && (
+            <div className="detail-item">
+              <span className="label">Type</span>
+              <span className="value">{data.qType}</span>
+            </div>
+          )}
+          {data.datasourceID && (
+            <div className="detail-item">
+              <span className="label">Datasource ID</span>
+              <span className="value mono">{data.datasourceID}</span>
+            </div>
+          )}
+          {data.spaceId && (
+            <div className="detail-item">
+              <span className="label">Space</span>
+              <span className="value">{data.spaceId}</span>
+            </div>
+          )}
+          {data.ownerId && (
+            <div className="detail-item">
+              <span className="label">Owner ID</span>
+              <span className="value mono">{data.ownerId}</span>
+            </div>
+          )}
+          {data.user && (
+            <div className="detail-item">
+              <span className="label">User</span>
+              <span className="value">{data.user}</span>
+            </div>
+          )}
+          {data.qArchitecture && (
+            <div className="detail-item">
+              <span className="label">Architecture</span>
+              <span className="value">{data.qArchitecture === 0 ? "32-bit" : "64-bit"}</span>
+            </div>
+          )}
+          {data.createdAt && (
+            <div className="detail-item">
+              <span className="label">Created</span>
+              <span className="value">{formatDate(data.createdAt)}</span>
+            </div>
+          )}
+          {data.updatedAt && (
+            <div className="detail-item">
+              <span className="label">Updated</span>
+              <span className="value">{formatDate(data.updatedAt)}</span>
+            </div>
+          )}
+          {(data.qConnectStatement || data.connectionString) && (
+            <div className="detail-item full">
+              <span className="label">Connection String</span>
+              <span className="value mono">{data.qConnectStatement || data.connectionString}</span>
+            </div>
+          )}
+          {data.qLogOn && (
+            <div className="detail-item">
+              <span className="label">Log On</span>
+              <span className="value">{data.qLogOn === 0 ? "Service Account" : data.qLogOn === 1 ? "Current User" : "Stored Credentials"}</span>
+            </div>
+          )}
+        </div>
+
+        {data.privileges && data.privileges.length > 0 && (
+          <div className="conn-privileges">
+            <span className="priv-label">Privileges:</span>
+            <div className="priv-tags">
+              {data.privileges.map((p: string, i: number) => (
+                <span key={i} className="priv-tag">{p}</span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -2490,6 +4398,77 @@ function ActionSuccess({ title, data }: { title: string; data: any }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+function ActionCancelled({ title, data }: { title: string; data: any }) {
+  return (
+    <Card header={{ label: "Cancelled", title, gradient: "orange" }}>
+      <div className="success-content">
+        <div className="success-icon cancelled"><XCircle size={48} /></div>
+        <div className="success-details">
+          {Object.entries(data).filter(([k]) => k !== "type").map(([key, val]) => (
+            <div key={key} className="success-item">
+              <span className="si-key">{key}:</span>
+              <span className="si-val">{String(val)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ============ SELECTION INFO ============
+function SelectionInfoView({ data }: { data: any }) {
+  const selections = data.requestedSelections || data.selections || [];
+  const note = data.note;
+  const message = data.message;
+
+  // Format selection values - handle both old (values array) and new (selected string) format
+  const formatSelectionValues = (s: any): string => {
+    if (s.values && Array.isArray(s.values)) {
+      return s.values.join(", ");
+    }
+    if (s.selected) {
+      return s.selected;
+    }
+    return "—";
+  };
+
+  // Format selection count
+  const formatSelectionCount = (s: any): string => {
+    if (s.selectedCount !== undefined && s.total !== undefined) {
+      return `${s.selectedCount} of ${s.total}`;
+    }
+    return "";
+  };
+
+  return (
+    <div className="selection-simple">
+      <div className="selection-header">
+        {data.appName || "Selection Info"}
+      </div>
+      {message && <div className="selection-message">{message}</div>}
+      {selections.length > 0 ? (
+        <div className="selection-list">
+          {selections.map((s: any, i: number) => (
+            <div key={i} className="selection-item">
+              <div className="selection-item-header">
+                <span className="selection-field">{s.field}</span>
+                {formatSelectionCount(s) && (
+                  <span className="selection-count">{formatSelectionCount(s)}</span>
+                )}
+              </div>
+              <span className="selection-values">{formatSelectionValues(s)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="selection-empty">No active selections</div>
+      )}
+      {note && <div className="selection-note">{note}</div>}
+    </div>
   );
 }
 

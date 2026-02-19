@@ -31,7 +31,7 @@ class QlikClient {
     this.apiKey = apiKey;
   }
 
-  private async fetch(endpoint: string, options?: RequestInit): Promise<any> {
+  async fetch(endpoint: string, options?: RequestInit): Promise<any> {
     const url = endpoint.startsWith("http") ? endpoint : `${this.baseUrl}/api/v1${endpoint}`;
     console.error(`[Qlik API] ${options?.method || 'GET'} ${url}`);
     const response = await fetch(url, {
@@ -296,8 +296,8 @@ class QlikClient {
       if (enabled !== undefined) params.set("enabled", String(enabled));
       if (cursor) params.set("next", cursor);
 
-      const result = await this.fetch(`/alerts?${params}`);
-      allItems.push(...(result.data || []));
+      const result = await this.fetch(`/data-alerts?${params}`);
+      allItems.push(...(result.tasks || result.data || []));
       cursor = result.links?.next?.href ? new URL(result.links.next.href, this.baseUrl).searchParams.get("next") : null;
       if (allItems.length >= 1000) break;
     } while (cursor);
@@ -306,15 +306,15 @@ class QlikClient {
   }
 
   async alertGet(alertId: string): Promise<any> {
-    return this.fetch(`/alerts/${alertId}`);
+    return this.fetch(`/data-alerts/${alertId}`);
   }
 
   async alertTrigger(alertId: string): Promise<any> {
-    return this.fetch(`/alerts/${alertId}/actions/trigger`, { method: "POST" });
+    return this.fetch(`/data-alerts/${alertId}/actions/trigger`, { method: "POST" });
   }
 
   async alertDelete(alertId: string): Promise<any> {
-    return this.fetch(`/alerts/${alertId}`, { method: "DELETE" });
+    return this.fetch(`/data-alerts/${alertId}`, { method: "DELETE" });
   }
 
   // ============ QLIK ANSWERS ============
@@ -552,7 +552,7 @@ class QlikClient {
       if (spaceId) params.set("spaceId", spaceId);
       if (cursor) params.set("next", cursor);
 
-      const result = await this.fetch(`/automl/experiments?${params}`);
+      const result = await this.fetch(`/ml/experiments?${params}`);
       allItems.push(...(result.data || []));
       cursor = result.links?.next?.href ? new URL(result.links.next.href, this.baseUrl).searchParams.get("next") : null;
       if (allItems.length >= 500) break;
@@ -562,7 +562,7 @@ class QlikClient {
   }
 
   async automlGetExperiment(experimentId: string): Promise<any> {
-    return this.fetch(`/automl/experiments/${experimentId}`);
+    return this.fetch(`/ml/experiments/${experimentId}`);
   }
 
   async automlListDeployments(spaceId?: string): Promise<any> {
@@ -574,7 +574,7 @@ class QlikClient {
       if (spaceId) params.set("spaceId", spaceId);
       if (cursor) params.set("next", cursor);
 
-      const result = await this.fetch(`/automl/deployments?${params}`);
+      const result = await this.fetch(`/ml/deployments?${params}`);
       allItems.push(...(result.data || []));
       cursor = result.links?.next?.href ? new URL(result.links.next.href, this.baseUrl).searchParams.get("next") : null;
       if (allItems.length >= 500) break;
@@ -584,7 +584,7 @@ class QlikClient {
   }
 
   async automlGetDeployment(deploymentId: string): Promise<any> {
-    return this.fetch(`/automl/deployments/${deploymentId}`);
+    return this.fetch(`/ml/deployments/${deploymentId}`);
   }
 
   // ============ LINEAGE ============
@@ -623,52 +623,67 @@ class QlikClient {
   // ============ APP LINEAGE ============
   async getAppLineage(appId: string): Promise<any> {
     console.error(`[AppLineage] Fetching data lineage for app ${appId}`);
-    const lineageData = await this.fetch(`/apps/${appId}/data/lineage`);
 
-    // Parse the lineage data into a more structured format
-    const sources: any[] = [];
-    const internal: any[] = [];
+    // Use Engine API (more reliable, works with all permissions)
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
 
-    for (const item of lineageData || []) {
-      const disc = item.discriminator || "";
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
 
-      // External data files (QVD, Excel, etc.)
-      if (disc.startsWith("{lib://")) {
-        const match = disc.match(/\{lib:\/\/([^:]+)[^}]*:([^}]+)\}/);
-        if (match) {
-          const connection = match[1];
-          const path = match[2];
-          const fileName = path.split('/').pop() || path;
-          const ext = fileName.split('.').pop()?.toLowerCase() || "";
-          sources.push({
-            type: ext === "qvd" ? "QVD" : ext === "xlsx" || ext === "xls" ? "Excel" : "File",
-            connection,
-            path,
-            fileName,
-            discriminator: disc
-          });
-        }
-      }
-      // Internal/resident tables
-      else if (disc.startsWith("RESIDENT ")) {
-        internal.push({
-          type: "Resident",
-          table: disc.replace("RESIDENT ", "").replace(";", ""),
-          discriminator: disc
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      // Get tables and keys info
+      const tablesAndKeys = await app.getTablesAndKeys({} as any, {} as any, 0, true, false);
+
+      const sources: any[] = [];
+      const internal: any[] = [];
+      const tables: any[] = [];
+
+      // Process tables from Engine API
+      for (const table of tablesAndKeys.qtr || []) {
+        const tableName = table.qName;
+        const rowCount = table.qNoOfRows;
+        const fieldCount = table.qFields?.length || 0;
+        const keyFields = table.qKeyFields?.length || 0;
+
+        tables.push({
+          name: tableName,
+          rows: rowCount,
+          fields: fieldCount,
+          keyFields,
+          isSynthetic: table.qIsSynthetic || false
         });
       }
-      // Inline data
-      else if (disc === "INLINE;") {
-        internal.push({ type: "Inline", discriminator: disc });
-      }
-      // Autogenerate
-      else if (disc === "AUTOGENERATE;") {
-        internal.push({ type: "AutoGenerate", discriminator: disc });
-      }
-    }
 
-    console.error(`[AppLineage] Found ${sources.length} external sources, ${internal.length} internal sources`);
-    return { sources, internal, raw: lineageData };
+      // Get connections used by the app
+      try {
+        const connections = await app.getConnections();
+        for (const conn of connections || []) {
+          sources.push({
+            type: conn.qType || "Connection",
+            name: conn.qName,
+            connectionString: conn.qConnectionString,
+            provider: conn.qDriverName
+          });
+        }
+      } catch (e) {
+        console.error(`[AppLineage] Could not get connections: ${e}`);
+      }
+
+      console.error(`[AppLineage] Found ${tables.length} tables, ${sources.length} connections`);
+      return { sources, internal, tables, raw: tablesAndKeys };
+
+    } finally {
+      try { await session.close(); } catch (e) { /* ignore */ }
+    }
   }
 
   // ============ DATASETS ============
@@ -688,11 +703,12 @@ class QlikClient {
     let cursor: string | null = null;
 
     do {
-      const params = new URLSearchParams({ limit: "100" });
+      const params = new URLSearchParams({ limit: "100", resourceType: "dataset" });
       if (spaceId) params.set("spaceId", spaceId);
       if (cursor) params.set("next", cursor);
 
-      const result = await this.fetch(`/data-sets?${params}`);
+      // Use /items API with resourceType=dataset instead of /data-sets
+      const result = await this.fetch(`/items?${params}`);
       allItems.push(...(result.data || []));
       cursor = result.links?.next?.href ? new URL(result.links.next.href, this.baseUrl).searchParams.get("next") : null;
       if (allItems.length >= 1000) break;
@@ -757,15 +773,170 @@ class QlikClient {
 
   // ============ SELECTIONS (Engine API via REST) ============
   async getAppFields(appId: string): Promise<any> {
-    // Get app metadata which includes table/field info
-    const result = await this.fetch(`/apps/${appId}/data/metadata`);
-    return result;
+    // Use Engine API to get complete table/field information
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[AppFields] Getting fields for app ${appId}`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      // Get tables and keys - this returns full field information
+      const tablesAndKeys = await app.getTablesAndKeys({} as any, {} as any, 0, true, false);
+
+      const tables = (tablesAndKeys.qtr || []).map((table: any) => ({
+        name: table.qName,
+        rows: table.qNoOfRows,
+        isSynthetic: table.qIsSynthetic || false,
+        fields: (table.qFields || []).map((f: any) => ({
+          name: f.qName,
+          tags: f.qTags || [],
+          isKey: f.qKeyType === "PERFECT_KEY" || f.qKeyType === "PRIMARY_KEY" || f.qKeyType === "ANY_KEY",
+          cardinal: f.qnTotalDistinctValues || 0,
+        })),
+      }));
+
+      await session.close();
+      console.error(`[AppFields] Found ${tables.length} tables`);
+      return { tables };
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
   }
 
   async getAppSelections(appId: string): Promise<any> {
-    // Note: Full selection state requires Engine API WebSocket
-    // This returns basic app state info
-    return this.fetch(`/apps/${appId}`);
+    // Use Engine API to get current selections
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[Selections] Getting selections for app ${appId}`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      // Create a current selections object
+      const selObj = await app.createSessionObject({
+        qInfo: { qType: "CurrentSelections" },
+        qSelectionObjectDef: {}
+      });
+
+      const layout = await selObj.getLayout();
+      const selections = (layout.qSelectionObject?.qSelections || []).map((sel: any) => ({
+        field: sel.qField,
+        selected: sel.qSelected,
+        total: sel.qTotal,
+        selectedCount: sel.qSelectedCount,
+        isNumeric: sel.qIsNum,
+        stateCounts: sel.qStateCounts,
+      }));
+
+      // Also get app name
+      const appLayout = await app.getAppLayout();
+      const appName = appLayout.qTitle || appId;
+
+      await session.close();
+      console.error(`[Selections] Found ${selections.length} active selections`);
+      return { appId, appName, selections };
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  async clearSelections(appId: string): Promise<any> {
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[Selections] Clearing all selections for app ${appId}`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      // Clear all selections
+      await app.clearAll();
+
+      const appLayout = await app.getAppLayout();
+      const appName = appLayout.qTitle || appId;
+
+      await session.close();
+      console.error(`[Selections] Cleared all selections`);
+      return { appId, appName, cleared: true };
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  async selectValues(appId: string, fieldName: string, values: string[]): Promise<any> {
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[Selections] Selecting ${values.length} values in field "${fieldName}"`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      // Get the field
+      const field = await app.getField(fieldName);
+
+      // Select values by text
+      // First, we need to search and select
+      // Use selectValues with qTextSearch
+      await field.clear(); // Clear previous selections on this field
+
+      // Select values one by one or use selectMatch for text values
+      for (const val of values) {
+        await field.selectMatch(val, false); // false = don't toggle, just add
+      }
+
+      const appLayout = await app.getAppLayout();
+      const appName = appLayout.qTitle || appId;
+
+      await session.close();
+      console.error(`[Selections] Selected ${values.length} values in "${fieldName}"`);
+      return { appId, appName, field: fieldName, selectedCount: values.length, values };
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
   }
 
   // ============ TENANT & GOVERNANCE ============
@@ -784,6 +955,634 @@ class QlikClient {
     } catch (error) {
       return { status: "unhealthy", error: String(error) };
     }
+  }
+
+  // ============ SHEETS (Engine API) ============
+  async getSheets(appId: string): Promise<any[]> {
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[Sheets] Connecting to ${wsUrl}`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      // Get sheet list using AppObjectList
+      const sheetListObj = await app.createSessionObject({
+        qInfo: { qType: "SheetList" },
+        qAppObjectListDef: {
+          qType: "sheet",
+          qData: {
+            title: "/qMetaDef/title",
+            description: "/qMetaDef/description",
+            rank: "/rank",
+            thumbnail: "/thumbnail"
+          }
+        }
+      });
+
+      const layout = await sheetListObj.getLayout();
+      const sheets = (layout.qAppObjectList?.qItems || []).map((item: any) => ({
+        id: item.qInfo?.qId,
+        title: item.qData?.title || item.qMeta?.title || "Untitled",
+        description: item.qData?.description || "",
+        rank: item.qData?.rank || 0,
+        thumbnail: item.qData?.thumbnail?.qStaticContentUrl?.qUrl || null,
+      }));
+
+      await session.close();
+      console.error(`[Sheets] Found ${sheets.length} sheets`);
+      return sheets;
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  async getSheetObjects(appId: string, sheetId: string): Promise<any> {
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[SheetObjects] Getting objects for sheet ${sheetId}`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      const sheet = await app.getObject(sheetId);
+      const layout = await sheet.getLayout();
+
+      // Get each object's details including title
+      const cells = layout.cells || [];
+      const objectsWithTitles = await Promise.all(
+        cells.map(async (cell: any) => {
+          try {
+            const obj = await app.getObject(cell.name);
+            const objLayout = await obj.getLayout();
+            return {
+              id: cell.name,
+              type: cell.type,
+              title: objLayout.title || objLayout.qMeta?.title || cell.name,
+              col: cell.col,
+              row: cell.row,
+              colspan: cell.colspan,
+              rowspan: cell.rowspan,
+            };
+          } catch {
+            return {
+              id: cell.name,
+              type: cell.type,
+              title: cell.name,
+              col: cell.col,
+              row: cell.row,
+              colspan: cell.colspan,
+              rowspan: cell.rowspan,
+            };
+          }
+        })
+      );
+
+      await session.close();
+      console.error(`[SheetObjects] Found ${objectsWithTitles.length} objects`);
+      return {
+        id: sheetId,
+        title: layout.qMeta?.title || layout.title || "Sheet",
+        description: layout.qMeta?.description || "",
+        objects: objectsWithTitles,
+      };
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  // ============ FIELD VALUES (Engine API) ============
+  async getFieldValues(appId: string, fieldName: string, searchText?: string, limit = 100): Promise<any> {
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[FieldValues] Getting values for field "${fieldName}"`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      // Create list object for field values
+      const listObj = await app.createSessionObject({
+        qInfo: { qType: "FieldValueList" },
+        qListObjectDef: {
+          qDef: { qFieldDefs: [fieldName] },
+          qInitialDataFetch: [{ qTop: 0, qLeft: 0, qWidth: 1, qHeight: limit }]
+        }
+      });
+
+      // Apply search if provided
+      if (searchText) {
+        await listObj.searchListObjectFor("/qListObjectDef", searchText);
+      }
+
+      const layout = await listObj.getLayout();
+      const dataPage = layout.qListObject?.qDataPages?.[0];
+      const values = (dataPage?.qMatrix || []).map((row: any) => ({
+        text: row[0]?.qText || "",
+        num: row[0]?.qNum,
+        state: row[0]?.qState, // S=selected, O=optional, X=excluded
+        elemNumber: row[0]?.qElemNumber,
+      }));
+
+      const totalCount = layout.qListObject?.qDimensionInfo?.qCardinal || values.length;
+
+      await session.close();
+      console.error(`[FieldValues] Found ${values.length} of ${totalCount} values`);
+      return {
+        fieldName,
+        values,
+        totalCount,
+        searchText,
+      };
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  // ============ MASTER ITEMS (Engine API) ============
+  async getMasterDimensions(appId: string): Promise<any[]> {
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[MasterItems] Getting dimensions for app ${appId}`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      const dimListObj = await app.createSessionObject({
+        qInfo: { qType: "DimensionList" },
+        qDimensionListDef: {
+          qType: "dimension",
+          qData: {
+            title: "/qMetaDef/title",
+            description: "/qMetaDef/description",
+            tags: "/qMetaDef/tags",
+            grouping: "/qDim/qGrouping",
+            fieldDefs: "/qDim/qFieldDefs"
+          }
+        }
+      });
+
+      const layout = await dimListObj.getLayout();
+      const dimensions = (layout.qDimensionList?.qItems || []).map((item: any) => ({
+        id: item.qInfo?.qId,
+        title: item.qData?.title || item.qMeta?.title || "Untitled",
+        description: item.qData?.description || "",
+        tags: item.qData?.tags || [],
+        fields: item.qData?.fieldDefs || [],
+        grouping: item.qData?.grouping,
+      }));
+
+      await session.close();
+      console.error(`[MasterItems] Found ${dimensions.length} dimensions`);
+      return dimensions;
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  async getMasterMeasures(appId: string): Promise<any[]> {
+    const wsUrl = `${this.baseUrl.replace("https://", "wss://")}/app/${appId}`;
+    console.error(`[MasterItems] Getting measures for app ${appId}`);
+
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+
+    try {
+      const global: any = await session.open();
+      const app: any = await global.openDoc(appId);
+
+      const measureListObj = await app.createSessionObject({
+        qInfo: { qType: "MeasureList" },
+        qMeasureListDef: {
+          qType: "measure",
+          qData: {
+            title: "/qMetaDef/title",
+            description: "/qMetaDef/description",
+            tags: "/qMetaDef/tags",
+            expression: "/qMeasure/qDef"
+          }
+        }
+      });
+
+      const layout = await measureListObj.getLayout();
+      const measures = (layout.qMeasureList?.qItems || []).map((item: any) => ({
+        id: item.qInfo?.qId,
+        title: item.qData?.title || item.qMeta?.title || "Untitled",
+        description: item.qData?.description || "",
+        tags: item.qData?.tags || [],
+        expression: item.qData?.expression || "",
+      }));
+
+      await session.close();
+      console.error(`[MasterItems] Found ${measures.length} measures`);
+      return measures;
+    } catch (err) {
+      await session.close();
+      throw err;
+    }
+  }
+
+  // ============ GLOSSARY (REST API) ============
+  async getGlossaries(): Promise<any[]> {
+    const allItems: any[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const params = new URLSearchParams({ limit: "100" });
+      if (cursor) params.set("next", cursor);
+
+      const result = await this.fetch(`/glossaries?${params}`);
+      const items = result.data || [];
+      allItems.push(...items);
+
+      cursor = result.links?.next?.href
+        ? new URL(result.links.next.href, this.baseUrl).searchParams.get("next")
+        : null;
+
+      if (allItems.length >= 500) break;
+    } while (cursor);
+
+    return allItems;
+  }
+
+  async getGlossary(glossaryId: string): Promise<any> {
+    return this.fetch(`/glossaries/${glossaryId}`);
+  }
+
+  async getGlossaryTerms(glossaryId: string): Promise<any[]> {
+    const allItems: any[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const params = new URLSearchParams({ limit: "100" });
+      if (cursor) params.set("next", cursor);
+
+      const result = await this.fetch(`/glossaries/${glossaryId}/terms?${params}`);
+      const items = result.data || [];
+      allItems.push(...items);
+
+      cursor = result.links?.next?.href
+        ? new URL(result.links.next.href, this.baseUrl).searchParams.get("next")
+        : null;
+
+      if (allItems.length >= 1000) break;
+    } while (cursor);
+
+    return allItems;
+  }
+
+  async getGlossaryTerm(glossaryId: string, termId: string): Promise<any> {
+    return this.fetch(`/glossaries/${glossaryId}/terms/${termId}`);
+  }
+
+  async getGlossaryCategories(glossaryId: string): Promise<any[]> {
+    const result = await this.fetch(`/glossaries/${glossaryId}/categories`);
+    return result.data || [];
+  }
+
+  async createGlossaryTerm(glossaryId: string, term: { name: string; description?: string; categoryId?: string }): Promise<any> {
+    return this.fetch(`/glossaries/${glossaryId}/terms`, {
+      method: "POST",
+      body: JSON.stringify(term),
+    });
+  }
+
+  async updateGlossaryTerm(glossaryId: string, termId: string, updates: { name?: string; description?: string }): Promise<any> {
+    return this.fetch(`/glossaries/${glossaryId}/terms/${termId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteGlossaryTerm(glossaryId: string, termId: string): Promise<any> {
+    return this.fetch(`/glossaries/${glossaryId}/terms/${termId}`, {
+      method: "DELETE",
+    });
+  }
+
+  // ==================== DATA PRODUCTS ====================
+
+  async getDataProducts(): Promise<any[]> {
+    // Data products are available via items API with resourceType filter
+    return this.search(undefined, ["dataproduct"]);
+  }
+
+  async getDataProduct(productId: string): Promise<any> {
+    // Try data governance API first, fallback to items API
+    try {
+      return await this.fetch(`/data-products/${productId}`);
+    } catch {
+      // Fallback: get from items
+      const items = await this.search(undefined, ["dataproduct"]);
+      return items.find((item: any) => item.resourceId === productId || item.id === productId);
+    }
+  }
+
+  // ==================== DATASET ENHANCEMENTS ====================
+
+  // Resolve item ID to resourceId for dataset operations
+  private async resolveDatasetResourceId(idOrItemId: string): Promise<string> {
+    // First try as-is (might be resourceId already)
+    try {
+      await this.fetch(`/data-sets/${idOrItemId}`);
+      return idOrItemId;
+    } catch {
+      // Try to resolve from items API
+      try {
+        const result = await this.fetch(`/items/${idOrItemId}`);
+        if (result.resourceId) {
+          return result.resourceId;
+        }
+      } catch {
+        // Ignore
+      }
+      // Return original as fallback
+      return idOrItemId;
+    }
+  }
+
+  async getDatasetProfile(datasetId: string): Promise<any> {
+    try {
+      const resourceId = await this.resolveDatasetResourceId(datasetId);
+      console.error(`[Dataset Profile] Resolved ${datasetId} -> ${resourceId}`);
+      return await this.fetch(`/data-sets/${resourceId}/profiles`);
+    } catch (e) {
+      console.error(`[Dataset Profile] Error: ${e}`);
+      return null;
+    }
+  }
+
+  async getDatasetSample(datasetId: string, limit = 10): Promise<any> {
+    try {
+      const resourceId = await this.resolveDatasetResourceId(datasetId);
+      console.error(`[Dataset Sample] Resolved ${datasetId} -> ${resourceId}`);
+      return await this.fetch(`/data-sets/${resourceId}/data?limit=${limit}`);
+    } catch (e) {
+      console.error(`[Dataset Sample] Error: ${e}`);
+      return null;
+    }
+  }
+
+  // ==================== BOOKMARKS ====================
+
+  async getBookmarks(appId: string): Promise<any[]> {
+    const wsUrl = `wss://${new URL(this.baseUrl).host}/app/${appId}`;
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+    try {
+      const global = await session.open();
+      const app = await (global as any).openDoc(appId);
+
+      const bookmarkList = await app.createSessionObject({
+        qInfo: { qType: "BookmarkList" },
+        qBookmarkListDef: {
+          qType: "bookmark",
+          qData: {
+            title: "/qMetaDef/title",
+            description: "/qMetaDef/description",
+            sheetId: "/sheetId",
+            selectionFields: "/qBookmark/qStateData/0/qFieldItems/*/qDef/qName",
+          },
+        },
+      });
+      const layout = await bookmarkList.getLayout();
+      return layout.qBookmarkList?.qItems || [];
+    } finally {
+      await session.close();
+    }
+  }
+
+  async applyBookmark(appId: string, bookmarkId: string): Promise<any> {
+    const wsUrl = `wss://${new URL(this.baseUrl).host}/app/${appId}`;
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+    try {
+      const global = await session.open();
+      const app = await (global as any).openDoc(appId);
+      const result = await app.applyBookmark(bookmarkId);
+      return { success: result, bookmarkId };
+    } finally {
+      await session.close();
+    }
+  }
+
+  // ==================== VARIABLES ====================
+
+  async getVariables(appId: string): Promise<any[]> {
+    const wsUrl = `wss://${new URL(this.baseUrl).host}/app/${appId}`;
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+    try {
+      const global = await session.open();
+      const app = await (global as any).openDoc(appId);
+
+      const variableList = await app.createSessionObject({
+        qInfo: { qType: "VariableList" },
+        qVariableListDef: {
+          qType: "variable",
+          qData: {
+            tags: "/tags",
+          },
+        },
+      });
+      const layout = await variableList.getLayout();
+      return layout.qVariableList?.qItems || [];
+    } finally {
+      await session.close();
+    }
+  }
+
+  async setVariable(appId: string, variableName: string, value: string): Promise<any> {
+    const wsUrl = `wss://${new URL(this.baseUrl).host}/app/${appId}`;
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+    try {
+      const global = await session.open();
+      const app = await (global as any).openDoc(appId);
+      const variable = await app.getVariableByName(variableName);
+      await variable.setStringValue(value);
+      return { success: true, variableName, value };
+    } finally {
+      await session.close();
+    }
+  }
+
+  // ==================== STORIES ====================
+
+  async getStories(appId: string): Promise<any[]> {
+    const wsUrl = `wss://${new URL(this.baseUrl).host}/app/${appId}`;
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+    try {
+      const global = await session.open();
+      const app = await (global as any).openDoc(appId);
+
+      const storyList = await app.createSessionObject({
+        qInfo: { qType: "StoryList" },
+        qAppObjectListDef: {
+          qType: "story",
+          qData: {
+            title: "/qMetaDef/title",
+            description: "/qMetaDef/description",
+            thumbnail: "/thumbnail",
+          },
+        },
+      });
+      const layout = await storyList.getLayout();
+      return layout.qAppObjectList?.qItems || [];
+    } finally {
+      await session.close();
+    }
+  }
+
+  // ==================== APP SCRIPT ====================
+
+  async getAppScript(appId: string): Promise<string> {
+    const wsUrl = `wss://${new URL(this.baseUrl).host}/app/${appId}`;
+    console.error(`[AppScript] Connecting to ${wsUrl}`);
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+    try {
+      console.error(`[AppScript] Opening session...`);
+      const global = await session.open();
+      console.error(`[AppScript] Opening doc ${appId}...`);
+      const app = await (global as any).openDoc(appId);
+      console.error(`[AppScript] Getting script...`);
+      const script = await app.getScript();
+      console.error(`[AppScript] Got script (${script?.length || 0} chars)`);
+      return script;
+    } catch (err: any) {
+      console.error(`[AppScript] Error:`, err?.message || err);
+      throw err;
+    } finally {
+      await session.close();
+    }
+  }
+
+  // ==================== CONNECTIONS ====================
+
+  async getConnections(appId: string): Promise<any[]> {
+    const wsUrl = `wss://${new URL(this.baseUrl).host}/app/${appId}`;
+    const schema: object = await fetch("https://unpkg.com/enigma.js@2.14.0/schemas/12.936.0.json").then(r => r.json()) as object;
+
+    const session = enigma.create({
+      schema,
+      url: wsUrl,
+      createSocket: (url: string) => new WebSocket(url, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }) as any,
+    });
+    try {
+      const global = await session.open();
+      const app = await (global as any).openDoc(appId);
+      return await app.getConnections();
+    } finally {
+      await session.close();
+    }
+  }
+
+  // ==================== DATA CONNECTIONS (Tenant Level) ====================
+
+  async getDataConnections(): Promise<any[]> {
+    const params = new URLSearchParams({ limit: "100" });
+    const result = await this.fetch(`/data-connections?${params}`);
+    return result.data || [];
+  }
+
+  async getDataConnection(connectionId: string): Promise<any> {
+    return this.fetch(`/data-connections/${connectionId}`);
   }
 }
 
@@ -817,7 +1616,11 @@ export function createServer(): McpServer {
 
 Supported resource types: app, qvapp, dataset, automation, note, genericlink, collection, space
 
-If multiple results found, ask user which one they want before calling detail tools.`,
+CRITICAL: Each result has a unique "id" field (UUID format like "83433f72-1ea0-40d0-939d-3a56eaa4d118"). When calling detail tools (app_details, space_details, etc.), you MUST use the EXACT id from these results. Do NOT invent or guess IDs.
+
+If multiple results found, ask user which one they want before calling detail tools.
+
+IMPORTANT: After showing results, provide a brief summary of what was found (e.g., "3 apps and 2 datasets found, most recent updated today").`,
     inputSchema: {
       query: z.string().optional().describe("Search text - matches name, description, and tags"),
       types: z.array(z.string()).optional().default(["all"]).describe("Resource types: app, qvapp, dataset, automation, note, space, all"),
@@ -837,9 +1640,24 @@ If multiple results found, ask user which one they want before calling detail to
       space: item.spaceId,
       updatedAt: item.updatedAt,
     }));
+
+    // Generate summary by type
+    const typeCounts: Record<string, number> = {};
+    mapped.forEach((item: any) => {
+      const t = item.resourceType || "unknown";
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+    const typeBreakdown = Object.entries(typeCounts)
+      .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`)
+      .join(", ");
+
+    const summary = mapped.length === 0
+      ? "No results found"
+      : `Found ${mapped.length} items: ${typeBreakdown}`;
+
     return {
-      content: [{ type: "text", text: `Found ${mapped.length} results` }],
-      structuredContent: { type: "apps", apps: mapped, query: args.query },
+      content: [{ type: "text", text: summary }],
+      structuredContent: { type: "apps", apps: mapped, query: args.query, summary, tenantUrl: TENANT_URL },
     };
   });
 
@@ -849,6 +1667,8 @@ If multiple results found, ask user which one they want before calling detail to
     title: "Get App Details",
     description: `Get detailed information about a specific Qlik app.
 
+CRITICAL: You MUST use the exact app ID from search results or UI selection. The ID is a UUID like "83433f72-1ea0-40d0-939d-3a56eaa4d118". Do NOT invent or guess IDs.
+
 IMPORTANT: The UI displays ALL details in a rich visual card. DO NOT:
 - List or repeat any app properties
 - Create tables or summaries
@@ -856,7 +1676,7 @@ IMPORTANT: The UI displays ALL details in a rich visual card. DO NOT:
 
 Simply say "Here are the details" or ask what the user wants to do next.`,
     inputSchema: {
-      appId: z.string().describe("The app ID to get details for"),
+      appId: z.string().describe("The exact app ID (UUID) from search results (e.g., 83433f72-1ea0-40d0-939d-3a56eaa4d118)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
@@ -887,6 +1707,7 @@ Simply say "Here are the details" or ask what the user wants to do next.`,
         ownerName: ownerName,
         spaceId: attrs.spaceId,
         spaceName: spaceName,
+        tenantUrl: TENANT_URL,
       },
     };
   });
@@ -896,6 +1717,9 @@ Simply say "Here are the details" or ask what the user wants to do next.`,
   registerAppTool(server, "spaces", {
     title: "Get Spaces Catalog",
     description: `Get comprehensive catalog of spaces in Qlik Cloud tenant. The UI displays results - DO NOT list them again in text.
+
+CRITICAL: Each space in results has a unique "id" field. When user wants details, you MUST use the EXACT id from the results.
+Example: If results show {"id": "66990bad681dc0ebb43946d7", "name": "Supply Chain(Dev)"}, use spaceId="66990bad681dc0ebb43946d7"
 
 If multiple spaces found, ask user which one they want before calling detail tools.`,
     inputSchema: {
@@ -916,9 +1740,14 @@ If multiple spaces found, ask user which one they want before calling detail too
 
   registerAppTool(server, "space_details", {
     title: "Get Space Details",
-    description: `Get detailed information about a space including all items in it. The UI displays the space info and items - DO NOT list them again in text.`,
+    description: `Get detailed information about a space including all items in it. The UI displays the space info and items - DO NOT list them again in text.
+
+CRITICAL: You MUST use the exact space ID from the "spaces" tool results or UI selection. Do NOT invent or guess IDs.
+Example: Use the "id" field value like "66990bad681dc0ebb43946d7", not the space name.
+
+IMPORTANT: After showing results, provide a brief summary (e.g., "Shared space with 5 apps and 3 datasets").`,
     inputSchema: {
-      spaceId: z.string().describe("The space ID to get details for"),
+      spaceId: z.string().describe("The exact space ID from spaces tool results (e.g., 66990bad681dc0ebb43946d7)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
@@ -932,8 +1761,21 @@ If multiple spaces found, ask user which one they want before calling detail too
       createdAt: item.createdAt,
       ownerId: item.ownerId,
     }));
+
+    // Generate summary by type
+    const typeCounts: Record<string, number> = {};
+    mappedItems.forEach((item: any) => {
+      const t = item.resourceType || "item";
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+    const typeBreakdown = Object.entries(typeCounts)
+      .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`)
+      .join(", ");
+
+    const summary = `${space.type || "Space"} "${space.name}" contains ${mappedItems.length} items: ${typeBreakdown || "empty"}`;
+
     return {
-      content: [{ type: "text", text: `Space "${space.name}" has ${mappedItems.length} items` }],
+      content: [{ type: "text", text: summary }],
       structuredContent: {
         type: "space-detail",
         id: space.id,
@@ -944,6 +1786,7 @@ If multiple spaces found, ask user which one they want before calling detail too
         updatedAt: space.updatedAt,
         ownerId: space.ownerId,
         items: mappedItems,
+        summary,
       },
     };
   });
@@ -951,22 +1794,100 @@ If multiple spaces found, ask user which one they want before calling detail too
   // ==================== GOVERNANCE ====================
 
   registerAppTool(server, "tenant", {
-    title: "Get Tenant Info",
-    description: "Get Qlik Cloud tenant information",
+    title: "Get Tenant Dashboard",
+    description: "Get comprehensive Qlik Cloud tenant information including license, capacity, and features",
     inputSchema: {},
     _meta: { ui: { resourceUri } },
   }, async (): Promise<CallToolResult> => {
+    // Fetch tenant info
     const tenant = await qlik.getTenantInfo();
+
+    // Fetch license info
+    let license: any = null;
+    try {
+      license = await qlik.fetch("/licenses/overview");
+    } catch { /* ignore */ }
+
+    // Fetch counts in parallel
+    let counts = { apps: 0, spaces: 0, users: 0, automations: 0 };
+    try {
+      const [appsRes, spacesRes, usersRes, autoRes] = await Promise.all([
+        qlik.fetch("/items?resourceType=app&limit=1"),
+        qlik.fetch("/spaces?limit=1"),
+        qlik.fetch("/users?limit=1"),
+        qlik.fetch("/automations?limit=1"),
+      ]);
+      counts.apps = appsRes.totalResults || 0;
+      counts.spaces = spacesRes.meta?.count || 0;
+      counts.users = usersRes.totalResults || 0;
+      counts.automations = autoRes.data?.length || 0;
+    } catch { /* ignore */ }
+
+    // Extract capacities and features from license
+    const capacities: Record<string, any> = {};
+    const features: string[] = [];
+
+    if (license?.parameters) {
+      for (const param of license.parameters) {
+        const v = param.values;
+        switch (param.name) {
+          case "fullUser": capacities.users = v.unlimited ? "Unlimited" : v.quantity; break;
+          case "concurrent_reloads": capacities.concurrentReloads = v.quantity; break;
+          case "dataAnalyticsCapacity": capacities.dataCapacityGB = Math.round((v.quantity || 0) / 1073741824); break;
+          case "maxAppSizeInMemory": capacities.maxAppSizeGB = v.quantity; break;
+          case "amlDepModel": capacities.mlModels = v.quantity; break;
+          case "standardAutomationRuns": capacities.automationRuns = v.quantity; break;
+          case "reportingService": capacities.reports = v.quantity; break;
+          case "numQuestionsPerMonth": capacities.aiQuestions = v.quantity; break;
+          case "qcs_tenants": capacities.tenants = v.quantity; break;
+          case "geoanalytics": if (v.toggle) features.push("Geo Analytics"); break;
+          case "sapconnector": if (v.toggle) features.push("SAP Connector"); break;
+          case "qlikSenseMobile": if (v.toggle) features.push("Mobile"); break;
+          case "qlikSenseDesktop": if (v.toggle) features.push("Desktop"); break;
+          case "qlikSenseOfficeAddIn": if (v.toggle) features.push("Office Add-in"); break;
+          case "byoidp": if (v.toggle) features.push("BYOIDP"); break;
+          case "jwtAuth": if (v.toggle) features.push("JWT Auth"); break;
+          case "dataIntegrationServices": if (v.toggle) features.push("Data Integration"); break;
+          case "amlAdvFeatures": if (v.toggle) features.push("AutoML"); break;
+        }
+      }
+    }
+
+    // Get user allotment
+    const usersUsed = license?.allotments?.find((a: any) => a.name === "fullUser")?.unitsUsed || 0;
+
     return {
       content: [{ type: "text", text: `Tenant: ${tenant.name}` }],
-      structuredContent: { type: "tenant", ...tenant },
+      structuredContent: {
+        type: "tenant",
+        id: tenant.id,
+        name: tenant.name,
+        hostnames: tenant.hostnames,
+        region: tenant.region,
+        datacenter: tenant.datacenter,
+        status: tenant.status,
+        created: tenant.created,
+        lastUpdated: tenant.lastUpdated,
+        licenseNumber: license?.licenseNumber,
+        licenseValid: license?.valid,
+        licenseStatus: license?.status,
+        product: license?.product,
+        edition: license?.parameters?.find((p: any) => p.name === "edition")?.values?.value,
+        trial: license?.trial,
+        counts,
+        capacities,
+        features,
+        usersUsed,
+      },
     };
   });
 
   registerAppTool(server, "user", {
     title: "Get User Info",
-    description: "Get detailed user information. When user selects from UI, use the user ID provided.",
-    inputSchema: { userId: z.string().describe("User ID") },
+    description: `Get detailed user information.
+
+CRITICAL: You MUST use the exact user ID from the "users" tool results. Do NOT invent IDs.`,
+    inputSchema: { userId: z.string().describe("The exact user ID from users results") },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const user = await qlik.getUserInfo(args.userId);
@@ -977,20 +1898,26 @@ If multiple spaces found, ask user which one they want before calling detail too
   });
 
   registerAppTool(server, "users", {
-    title: "Search Users",
-    description: "Search for users by name or email. The UI displays results - DO NOT list them again in text.",
+    title: "List/Search Users",
+    description: `List all users or search by name/email. The UI displays results - DO NOT list them again in text.
+
+If no query provided, returns ALL users in the tenant.
+
+CRITICAL: Each user has a unique "id" field. When getting user details, use the EXACT id from results.`,
     inputSchema: {
-      query: z.string().describe("User name or email to search"),
+      query: z.string().optional().describe("Optional: User name or email to search. Leave empty to list all users."),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
-    const users = await qlik.searchUsers(args.query);
+    // If query provided, search; otherwise get all users
+    const users = args.query ? await qlik.searchUsers(args.query) : await qlik.getUsers();
     const mapped = users.map((u: any) => ({
       id: u.id, name: u.name, email: u.email, status: u.status, picture: u.picture,
+      roles: u.roles, lastUpdated: u.lastUpdatedAt, created: u.createdAt,
     }));
     return {
       content: [{ type: "text", text: `Found ${mapped.length} users` }],
-      structuredContent: { type: "users", users: mapped, query: args.query },
+      structuredContent: { type: "users", users: mapped, query: args.query || "" },
     };
   });
 
@@ -1008,17 +1935,78 @@ If multiple spaces found, ask user which one they want before calling detail too
   });
 
   registerAppTool(server, "license", {
-    title: "Get License Info",
-    description: "Get license information including type, allocated seats, and usage",
-    inputSchema: {
-      includeDetails: z.boolean().optional().default(true).describe("Include detailed license breakdown"),
-    },
+    title: "Get License Dashboard",
+    description: "Get comprehensive license information including allotments, capacities, features, and usage metrics",
+    inputSchema: {},
     _meta: { ui: { resourceUri } },
   }, async (): Promise<CallToolResult> => {
     const license = await qlik.getLicenseInfo();
+
+    // Parse allotments
+    const allotments = (license.allotments || []).map((a: any) => ({
+      name: a.name,
+      displayName: a.name === "fullUser" ? "Full Users" : a.name === "byoidp" ? "BYOIDP" : a.name,
+      usageClass: a.usageClass,
+      total: a.units === -1 ? "Unlimited" : a.units,
+      used: a.unitsUsed,
+      overage: a.overage,
+    }));
+
+    // Parse parameters into categories
+    const capacities: any[] = [];
+    const features: any[] = [];
+    const limits: any[] = [];
+
+    for (const param of (license.parameters || [])) {
+      const v = param.values;
+      const item = {
+        name: param.name,
+        title: v.title || param.name,
+        value: v.quantity || v.value,
+        unit: v.unit,
+        scope: v.scope,
+        toggle: v.toggle,
+        unlimited: v.unlimited,
+        periodType: v.periodType,
+        visible: v.visible,
+      };
+
+      // Categorize
+      if (v.toggle === true) {
+        features.push({ name: v.title || param.name, enabled: true });
+      } else if (v.visible === true || v.periodType) {
+        capacities.push(item);
+      } else if (v.quantity && !v.toggle) {
+        limits.push(item);
+      }
+    }
+
+    // Calculate validity
+    const validRange = license.valid?.split("/") || [];
+    const validFrom = validRange[0];
+    const validTo = validRange[1];
+    const daysRemaining = validTo ? Math.ceil((new Date(validTo).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+
     return {
       content: [{ type: "text", text: `License info retrieved` }],
-      structuredContent: { type: "license", ...license },
+      structuredContent: {
+        type: "license",
+        // Basic info
+        licenseNumber: license.licenseNumber,
+        product: license.product,
+        status: license.status,
+        trial: license.trial,
+        valid: license.valid,
+        validFrom,
+        validTo,
+        daysRemaining,
+        changeTime: license.changeTime,
+        // Parsed data
+        allotments,
+        capacities,
+        features,
+        limits,
+      },
     };
   });
 
@@ -1108,6 +2096,8 @@ If multiple spaces found, ask user which one they want before calling detail too
     title: "List Automations",
     description: `List all automations. The UI displays results - DO NOT list them again in text.
 
+CRITICAL: Each automation has a unique "id" field. When getting details, use the EXACT id from results.
+
 If multiple automations found, ask user which one they want.`,
     inputSchema: {
       filter: z.string().optional().describe('Filter expression (e.g., "enabled eq true")'),
@@ -1127,8 +2117,10 @@ If multiple automations found, ask user which one they want.`,
 
   registerAppTool(server, "automation", {
     title: "Get Automation Details",
-    description: "Get full details of a specific automation. When user selects from UI, use the automation ID provided.",
-    inputSchema: { automationId: z.string().describe("The automation ID to retrieve") },
+    description: `Get full details of a specific automation.
+
+CRITICAL: You MUST use the exact automation ID from the "automations" tool results. Do NOT invent IDs.`,
+    inputSchema: { automationId: z.string().describe("The exact automation ID from automations results") },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const auto = await qlik.automationGetDetails(args.automationId);
@@ -1172,6 +2164,8 @@ If multiple automations found, ask user which one they want.`,
     title: "List Alerts",
     description: `List all Qlik Cloud data alerts. The UI displays results - DO NOT list them again in text.
 
+CRITICAL: Each alert has a unique "id" field. When getting details, use the EXACT id from results.
+
 If multiple alerts found, ask user which one they want.`,
     inputSchema: {
       spaceId: z.string().optional().describe("Filter by space ID"),
@@ -1192,8 +2186,10 @@ If multiple alerts found, ask user which one they want.`,
 
   registerAppTool(server, "alert", {
     title: "Get Alert Details",
-    description: "Get detailed information about a specific alert. When user selects from UI, use the alert ID provided.",
-    inputSchema: { alertId: z.string().describe("Alert ID to retrieve") },
+    description: `Get detailed information about a specific alert.
+
+CRITICAL: You MUST use the exact alert ID from the "alerts" tool results. Do NOT invent IDs.`,
+    inputSchema: { alertId: z.string().describe("The exact alert ID from alerts results") },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const alert = await qlik.alertGet(args.alertId);
@@ -1235,6 +2231,8 @@ If multiple alerts found, ask user which one they want.`,
     title: "List AI Assistants",
     description: `List Qlik Answers AI assistants. The UI displays results - DO NOT list them again in text.
 
+CRITICAL: Each assistant has a unique "id" field. When getting details, use the EXACT id from results.
+
 If multiple assistants found, ask user which one they want.`,
     inputSchema: {
       search: z.string().optional().describe("Search assistants by name"),
@@ -1254,8 +2252,10 @@ If multiple assistants found, ask user which one they want.`,
 
   registerAppTool(server, "assistant", {
     title: "Get Assistant Details",
-    description: "Get details of a specific assistant. When user selects from UI, use the assistant ID provided.",
-    inputSchema: { assistantId: z.string().describe("Assistant ID") },
+    description: `Get details of a specific AI assistant.
+
+CRITICAL: You MUST use the exact assistant ID from the "assistants" tool results. Do NOT invent IDs.`,
+    inputSchema: { assistantId: z.string().describe("The exact assistant ID from assistants results") },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const assistant = await qlik.answersGetAssistant(args.assistantId);
@@ -1316,7 +2316,9 @@ Workflow:
 
 Example: "show me sales trend", "revenue by region", "top 10 customers"
 
-If user explicitly requests a chart type (e.g., "as pie chart", "show as bar"), pass chartType parameter.`,
+If user explicitly requests a chart type (e.g., "as pie chart", "show as bar"), pass chartType parameter.
+
+IMPORTANT: After showing the chart, provide a brief insight (1-2 sentences) about what the data reveals - top performers, trends, outliers, or key takeaways. Don't just describe the chart, interpret it.`,
     inputSchema: {
       text: z.string().describe("Natural language question"),
       appId: z.string().describe("App ID"),
@@ -1382,8 +2384,38 @@ If user explicitly requests a chart type (e.g., "as pie chart", "show as bar"), 
     try {
       const chartData = await qlik.getChartData(args.appId, hypercubeDef, chartType);
 
+      // Generate auto-summary from data
+      const generateInsight = (labels: string[], values: number[], measureName?: string) => {
+        if (!values || values.length === 0) return "";
+
+        const total = values.reduce((a, b) => a + b, 0);
+        const max = Math.max(...values);
+        const maxIdx = values.indexOf(max);
+        const avg = total / values.length;
+
+        const formatNum = (n: number) => {
+          if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+          if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+          return n.toFixed(0);
+        };
+
+        const topLabel = labels[maxIdx] || "Top item";
+        const topPct = ((max / total) * 100).toFixed(0);
+        const measure = measureName || "value";
+
+        if (values.length === 1) {
+          return `Total ${measure}: ${formatNum(total)}`;
+        }
+
+        return `${topLabel} leads with ${formatNum(max)} (${topPct}% of total). ${values.length} items, total: ${formatNum(total)}, avg: ${formatNum(avg)}.`;
+      };
+
+      const insight = chartData.tableData
+        ? `Table with ${chartData.tableData.rows?.length || 0} rows and ${chartData.tableData.headers?.length || 0} columns.`
+        : generateInsight(chartData.labels, chartData.values, chartData.measureNames?.[0]);
+
       return {
-        content: [{ type: "text", text: `Chart: ${title}` }],
+        content: [{ type: "text", text: `${title}\n\nInsight: ${insight}` }],
         structuredContent: {
           type: "chart",
           chartType,
@@ -1394,6 +2426,7 @@ If user explicitly requests a chart type (e.g., "as pie chart", "show as bar"), 
           tableData: chartData.tableData, // For table chart type
           measureNames: chartData.measureNames, // Axis labels from Engine
           question: args.text,
+          insight, // Include insight in structured content too
           appLink: `${TENANT_URL}/sense/app/${args.appId}/insight-advisor`,
         },
       };
@@ -1422,6 +2455,8 @@ If user explicitly requests a chart type (e.g., "as pie chart", "show as bar"), 
     title: "List ML Experiments",
     description: `List AutoML experiments. The UI displays results - DO NOT list them again in text.
 
+CRITICAL: Each experiment has a unique "id" field. When getting details, use the EXACT id from results.
+
 If multiple experiments found, ask user which one they want.`,
     inputSchema: {
       spaceId: z.string().optional().describe("Filter by space ID"),
@@ -1429,10 +2464,17 @@ If multiple experiments found, ask user which one they want.`,
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const experiments = await qlik.automlGetExperiments(args.spaceId);
-    const mapped = experiments.map((e: any) => ({
-      id: e.id, name: e.name, status: e.status, targetFeature: e.targetFeature,
-      createdAt: e.createdAt, algorithm: e.algorithm,
-    }));
+    const mapped = experiments.map((e: any) => {
+      const attrs = e.attributes || e;
+      return {
+        id: e.id || attrs.id,
+        name: attrs.name || e.name || "Unnamed",
+        status: attrs.status || e.status,
+        targetFeature: attrs.targetFeature || e.targetFeature,
+        createdAt: attrs.createdAt || e.createdAt,
+        algorithm: attrs.algorithm || e.algorithm,
+      };
+    });
     return {
       content: [{ type: "text", text: `Found ${mapped.length} experiments` }],
       structuredContent: { type: "experiments", experiments: mapped },
@@ -1441,9 +2483,11 @@ If multiple experiments found, ask user which one they want.`,
 
   registerAppTool(server, "experiment", {
     title: "Get Experiment Details",
-    description: "Get experiment details. When user selects from UI, use the experiment ID provided.",
+    description: `Get ML experiment details.
+
+CRITICAL: You MUST use the exact experiment ID from the "experiments" tool results. Do NOT invent IDs.`,
     inputSchema: {
-      experimentId: z.string().describe("Experiment ID"),
+      experimentId: z.string().describe("The exact experiment ID from experiments results"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
@@ -1456,16 +2500,24 @@ If multiple experiments found, ask user which one they want.`,
 
   registerAppTool(server, "deployments", {
     title: "List ML Deployments",
-    description: "List all ML deployments",
+    description: `List all ML deployments. The UI displays results - DO NOT list them again in text.
+
+CRITICAL: Each deployment has a unique "id" field. When getting details, use the EXACT id from results.`,
     inputSchema: {
       spaceId: z.string().optional().describe("Filter by space ID"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const deployments = await qlik.automlListDeployments(args.spaceId);
-    const mapped = deployments.map((d: any) => ({
-      id: d.id, name: d.name, status: d.status, createdAt: d.createdAt,
-    }));
+    const mapped = deployments.map((d: any) => {
+      const attrs = d.attributes || d;
+      return {
+        id: d.id || attrs.id,
+        name: attrs.name || d.name || "Unnamed",
+        status: attrs.status || d.status,
+        createdAt: attrs.createdAt || d.createdAt,
+      };
+    });
     return {
       content: [{ type: "text", text: `Found ${mapped.length} deployments` }],
       structuredContent: { type: "deployments", deployments: mapped },
@@ -1474,8 +2526,10 @@ If multiple experiments found, ask user which one they want.`,
 
   registerAppTool(server, "deployment", {
     title: "Get Deployment Details",
-    description: "Get deployment details",
-    inputSchema: { deploymentId: z.string().describe("Deployment ID") },
+    description: `Get ML deployment details.
+
+CRITICAL: You MUST use the exact deployment ID from the "deployments" tool results. Do NOT invent IDs.`,
+    inputSchema: { deploymentId: z.string().describe("The exact deployment ID from deployments results") },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const deployment = await qlik.automlGetDeployment(args.deploymentId);
@@ -1557,13 +2611,15 @@ The lineage shows all data sources connected to the resource.`,
     title: "Get Dataset Details",
     description: `Get detailed information about a dataset.
 
+CRITICAL: You MUST use the exact dataset ID from search results or datasets list. Do NOT invent IDs.
+
 IMPORTANT: The UI displays ALL details in a rich visual card. DO NOT:
 - List or repeat any dataset properties
 - Create tables or summaries of the data
 - Describe the fields, types, or statistics
 
 Simply say "Here are the details" or ask what the user wants to do next.`,
-    inputSchema: { datasetId: z.string().describe("Dataset ID") },
+    inputSchema: { datasetId: z.string().describe("The exact dataset ID from search/datasets results") },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const raw = await qlik.getDatasetDetails(args.datasetId);
@@ -1647,10 +2703,9 @@ Simply say "Here are the details" or ask what the user wants to do next.`,
 
   registerAppTool(server, "select", {
     title: "Apply Selections",
-    description: `Apply selections/filters to a Qlik app.
+    description: `Apply selections/filters to a Qlik app field.
 
-Note: Full selection functionality requires Engine API WebSocket connection.
-This tool provides guidance on selection operations.`,
+Use this to filter data by selecting specific values in a field.`,
     inputSchema: {
       appId: z.string().describe("App ID to apply selections to"),
       selections: z.array(z.object({
@@ -1660,64 +2715,80 @@ This tool provides guidance on selection operations.`,
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
-    // Selections require Engine API WebSocket - return guidance
+    const results: any[] = [];
+
+    for (const sel of args.selections) {
+      if (sel.values && sel.values.length > 0) {
+        const result = await qlik.selectValues(args.appId, sel.field, sel.values);
+        results.push(result);
+      }
+    }
+
+    const summary = results.map(r => `${r.field}: ${r.selectedCount} values`).join(", ");
+
     return {
-      content: [{ type: "text", text: `Selection operations require Engine API WebSocket connection` }],
+      content: [{ type: "text", text: `Applied selections: ${summary}` }],
       structuredContent: {
-        type: "selection-info",
+        type: "action-success",
+        action: "select",
         appId: args.appId,
-        requestedSelections: args.selections,
-        note: "Full selection operations require Engine API WebSocket connection. Use Qlik Sense client or enigma.js for interactive selections.",
+        selections: results,
       },
     };
   });
 
   registerAppTool(server, "clear_selections", {
     title: "Clear Selections",
-    description: `Clear all selections in a Qlik app.
-
-Note: Full selection functionality requires Engine API WebSocket connection.`,
+    description: `Clear all selections in a Qlik app.`,
     inputSchema: {
       appId: z.string().describe("App ID to clear selections"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
+    const result = await qlik.clearSelections(args.appId);
     return {
-      content: [{ type: "text", text: `Clear selections requires Engine API WebSocket connection` }],
+      content: [{ type: "text", text: `Cleared all selections in "${result.appName}"` }],
       structuredContent: {
-        type: "selection-info",
+        type: "action-success",
+        action: "clear_selections",
         appId: args.appId,
-        action: "clear",
-        note: "Full selection operations require Engine API WebSocket connection.",
+        appName: result.appName,
+        message: "All selections cleared",
       },
     };
   });
 
   registerAppTool(server, "selections", {
     title: "Get Current Selections",
-    description: `Get current selections in a Qlik app.
-
-Note: Full selection state requires Engine API WebSocket connection.`,
+    description: `Get current selections/filters active in a Qlik app.`,
     inputSchema: {
       appId: z.string().describe("App ID to get selections from"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
-    const appInfo = await qlik.getAppSelections(args.appId);
+    const result = await qlik.getAppSelections(args.appId);
+    const selCount = result.selections?.length || 0;
+    const summary = selCount > 0
+      ? result.selections.map((s: any) => `${s.field}: ${s.selected}`).join(", ")
+      : "No active selections";
+
     return {
-      content: [{ type: "text", text: `App: ${appInfo.attributes?.name || args.appId}` }],
+      content: [{ type: "text", text: `${result.appName}: ${summary}` }],
       structuredContent: {
         type: "app-selections",
         appId: args.appId,
-        appName: appInfo.attributes?.name,
-        note: "Full selection state requires Engine API WebSocket connection.",
+        appName: result.appName,
+        selections: result.selections,
+        selectionCount: selCount,
       },
     };
   });
 
   registerAppTool(server, "fields", {
     title: "Get Available Fields",
-    description: "Get all available fields in a Qlik app's data model.",
+    description: `Get all available fields in a Qlik app's data model.
+
+IMPORTANT: After showing the data model, provide a brief summary (e.g., "Data model has 5 tables, largest is Sales with 12 fields").`,
     inputSchema: {
       appId: z.string().describe("App ID to get fields from"),
     },
@@ -1726,8 +2797,20 @@ Note: Full selection state requires Engine API WebSocket connection.`,
     const metadata = await qlik.getAppFields(args.appId);
     const tables = metadata.tables || [];
     const fields = tables.flatMap((t: any) => t.fields || []);
+
+    // Find largest table
+    const sortedTables = [...tables].sort((a: any, b: any) =>
+      (b.fields?.length || 0) - (a.fields?.length || 0)
+    );
+    const largestTable = sortedTables[0];
+    const largestInfo = largestTable
+      ? `, largest table: ${largestTable.name} (${largestTable.fields?.length || 0} fields)`
+      : "";
+
+    const summary = `Data model: ${tables.length} tables, ${fields.length} total fields${largestInfo}`;
+
     return {
-      content: [{ type: "text", text: `Found ${fields.length} fields in ${tables.length} tables` }],
+      content: [{ type: "text", text: summary }],
       structuredContent: {
         type: "app-fields",
         appId: args.appId,
@@ -1865,6 +2948,604 @@ FROM [lib://SPACE_NAME:DataFiles/filename.qvd] (qvd);`,
         steps,
         totalDuration,
         error: errorMsg || undefined,
+      },
+    };
+  });
+
+  // ==================== SHEETS ====================
+
+  registerAppTool(server, "list_sheets", {
+    title: "List Sheets",
+    description: `List all sheets in a Qlik app.
+
+IMPORTANT: After showing sheets, provide a brief summary (e.g., "App has 5 sheets including Dashboard, Sales Analysis, and KPIs").`,
+    inputSchema: {
+      appId: z.string().describe("App ID to list sheets from"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const sheets = await qlik.getSheets(args.appId);
+    const summary = `Found ${sheets.length} sheets: ${sheets.slice(0, 3).map((s: any) => s.title).join(", ")}${sheets.length > 3 ? "..." : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "sheets",
+        appId: args.appId,
+        sheets,
+        summary,
+        tenantUrl: TENANT_URL,
+      },
+    };
+  });
+
+  registerAppTool(server, "sheet_details", {
+    title: "Get Sheet Details",
+    description: `Get detailed information about a specific sheet including all objects on it.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+      sheetId: z.string().describe("Sheet ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const sheet = await qlik.getSheetObjects(args.appId, args.sheetId);
+    const objTypes = sheet.objects.reduce((acc: any, obj: any) => {
+      acc[obj.type] = (acc[obj.type] || 0) + 1;
+      return acc;
+    }, {});
+    const typeBreakdown = Object.entries(objTypes).map(([t, c]) => `${c} ${t}`).join(", ");
+
+    return {
+      content: [{ type: "text", text: `Sheet "${sheet.title}" has ${sheet.objects.length} objects: ${typeBreakdown}` }],
+      structuredContent: {
+        type: "sheet-detail",
+        appId: args.appId,
+        sheetId: args.sheetId,
+        tenantUrl: TENANT_URL,
+        ...sheet,
+      },
+    };
+  });
+
+  // ==================== FIELD VALUES ====================
+
+  registerAppTool(server, "field_values", {
+    title: "Get Field Values",
+    description: `Get all unique values in a field. Useful for understanding data content before making selections.
+
+IMPORTANT: After showing values, provide a brief insight (e.g., "Field has 45 unique values, including USA, Germany, Japan...").`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+      fieldName: z.string().describe("Field name to get values from"),
+      searchText: z.string().optional().describe("Optional search text to filter values"),
+      limit: z.number().optional().default(100).describe("Max values to return (default 100)"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const result = await qlik.getFieldValues(args.appId, args.fieldName, args.searchText, args.limit);
+    const sampleValues = result.values.slice(0, 5).map((v: any) => v.text).join(", ");
+    const summary = `Field "${args.fieldName}" has ${result.totalCount} unique values${args.searchText ? ` (filtered by "${args.searchText}")` : ""}. Sample: ${sampleValues}${result.values.length > 5 ? "..." : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "field-values",
+        appId: args.appId,
+        ...result,
+        summary,
+      },
+    };
+  });
+
+  // ==================== MASTER ITEMS ====================
+
+  registerAppTool(server, "master_dimensions", {
+    title: "List Master Dimensions",
+    description: `List all master dimensions in a Qlik app. Master dimensions are reusable, governed dimension definitions.
+
+IMPORTANT: After showing dimensions, provide a brief summary of what's available.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const dimensions = await qlik.getMasterDimensions(args.appId);
+    const summary = `Found ${dimensions.length} master dimensions: ${dimensions.slice(0, 5).map((d: any) => d.title).join(", ")}${dimensions.length > 5 ? "..." : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "master-dimensions",
+        appId: args.appId,
+        dimensions,
+        summary,
+      },
+    };
+  });
+
+  registerAppTool(server, "master_measures", {
+    title: "List Master Measures",
+    description: `List all master measures in a Qlik app. Master measures are reusable, governed calculation definitions.
+
+IMPORTANT: After showing measures, provide a brief summary of what's available.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const measures = await qlik.getMasterMeasures(args.appId);
+    const summary = `Found ${measures.length} master measures: ${measures.slice(0, 5).map((m: any) => m.title).join(", ")}${measures.length > 5 ? "..." : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "master-measures",
+        appId: args.appId,
+        measures,
+        summary,
+      },
+    };
+  });
+
+  // ==================== GLOSSARY ====================
+
+  registerAppTool(server, "glossaries", {
+    title: "List Glossaries",
+    description: `List all business glossaries in the tenant. Glossaries contain business terms and definitions.`,
+    inputSchema: {},
+    _meta: { ui: { resourceUri } },
+  }, async (): Promise<CallToolResult> => {
+    const glossaries = await qlik.getGlossaries();
+    const summary = glossaries.length === 0
+      ? "No glossaries found"
+      : `Found ${glossaries.length} glossaries: ${glossaries.slice(0, 3).map((g: any) => g.name).join(", ")}${glossaries.length > 3 ? "..." : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "glossaries",
+        glossaries,
+        summary,
+      },
+    };
+  });
+
+  registerAppTool(server, "glossary_details", {
+    title: "Get Glossary Details",
+    description: `Get detailed information about a glossary including its terms and categories.`,
+    inputSchema: {
+      glossaryId: z.string().describe("Glossary ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const [glossary, terms, categories] = await Promise.all([
+      qlik.getGlossary(args.glossaryId),
+      qlik.getGlossaryTerms(args.glossaryId),
+      qlik.getGlossaryCategories(args.glossaryId),
+    ]);
+
+    const summary = `Glossary "${glossary.name}" has ${terms.length} terms in ${categories.length} categories`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "glossary-detail",
+        ...glossary,
+        terms,
+        categories,
+        summary,
+      },
+    };
+  });
+
+  registerAppTool(server, "glossary_term", {
+    title: "Get Glossary Term",
+    description: `Get detailed information about a specific glossary term.`,
+    inputSchema: {
+      glossaryId: z.string().describe("Glossary ID"),
+      termId: z.string().describe("Term ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const term = await qlik.getGlossaryTerm(args.glossaryId, args.termId);
+
+    return {
+      content: [{ type: "text", text: `Term: ${term.name}` }],
+      structuredContent: {
+        type: "glossary-term",
+        glossaryId: args.glossaryId,
+        ...term,
+      },
+    };
+  });
+
+  registerAppTool(server, "create_glossary_term", {
+    title: "Create Glossary Term",
+    description: `Create a new term in a glossary.`,
+    inputSchema: {
+      glossaryId: z.string().describe("Glossary ID"),
+      name: z.string().describe("Term name"),
+      description: z.string().optional().describe("Term description/definition"),
+      categoryId: z.string().optional().describe("Category ID to assign term to"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const term = await qlik.createGlossaryTerm(args.glossaryId, {
+      name: args.name,
+      description: args.description,
+      categoryId: args.categoryId,
+    });
+
+    return {
+      content: [{ type: "text", text: `Created term: ${term.name}` }],
+      structuredContent: {
+        type: "glossary-term-created",
+        glossaryId: args.glossaryId,
+        ...term,
+      },
+    };
+  });
+
+  registerAppTool(server, "delete_glossary_term", {
+    title: "Delete Glossary Term",
+    description: `Delete a term from a glossary.`,
+    inputSchema: {
+      glossaryId: z.string().describe("Glossary ID"),
+      termId: z.string().describe("Term ID to delete"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    await qlik.deleteGlossaryTerm(args.glossaryId, args.termId);
+
+    return {
+      content: [{ type: "text", text: `Term deleted successfully` }],
+      structuredContent: {
+        type: "action-success",
+        action: "delete_glossary_term",
+        termId: args.termId,
+      },
+    };
+  });
+
+  // ==================== DATA PRODUCTS ====================
+
+  registerAppTool(server, "data_products", {
+    title: "List Data Products",
+    description: `List all data products in the tenant. Data products are curated collections of datasets for consumption.`,
+    inputSchema: {},
+    _meta: { ui: { resourceUri } },
+  }, async (): Promise<CallToolResult> => {
+    const products = await qlik.getDataProducts();
+    const summary = products.length === 0
+      ? "No data products found"
+      : `Found ${products.length} data products`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "data-products",
+        products: products.map((p: any) => ({
+          id: p.resourceId || p.id,
+          name: p.name,
+          description: p.description,
+          updatedAt: p.updatedAt,
+          ownerId: p.ownerId,
+          spaceId: p.spaceId,
+        })),
+      },
+    };
+  });
+
+  registerAppTool(server, "data_product_details", {
+    title: "Get Data Product Details",
+    description: `Get detailed information about a specific data product.`,
+    inputSchema: {
+      productId: z.string().describe("Data product ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const product = await qlik.getDataProduct(args.productId);
+    if (!product) {
+      return {
+        content: [{ type: "text", text: "Data product not found" }],
+        structuredContent: { type: "error", message: "Data product not found" },
+      };
+    }
+
+    return {
+      content: [{ type: "text", text: `Data product: ${product.name}` }],
+      structuredContent: {
+        type: "data-product-detail",
+        ...product,
+      },
+    };
+  });
+
+  // ==================== DATASET ENHANCEMENTS ====================
+
+  registerAppTool(server, "dataset_profile", {
+    title: "Get Dataset Profile",
+    description: `Get data profiling information for a dataset including statistics, distribution, and quality metrics.`,
+    inputSchema: {
+      datasetId: z.string().describe("Dataset ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const profile = await qlik.getDatasetProfile(args.datasetId);
+    if (!profile) {
+      return {
+        content: [{ type: "text", text: "Profile not available for this dataset" }],
+        structuredContent: { type: "error", message: "Dataset profile not available" },
+      };
+    }
+
+    return {
+      content: [{ type: "text", text: `Dataset profile retrieved` }],
+      structuredContent: {
+        type: "dataset-profile",
+        datasetId: args.datasetId,
+        profile,
+      },
+    };
+  });
+
+  registerAppTool(server, "dataset_sample", {
+    title: "Get Dataset Sample Data",
+    description: `Get sample data rows from a dataset.`,
+    inputSchema: {
+      datasetId: z.string().describe("Dataset ID"),
+      limit: z.number().optional().default(10).describe("Number of rows to fetch (max 100)"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const sample = await qlik.getDatasetSample(args.datasetId, Math.min(args.limit || 10, 100));
+    if (!sample) {
+      return {
+        content: [{ type: "text", text: "Sample data not available" }],
+        structuredContent: { type: "error", message: "Dataset sample not available" },
+      };
+    }
+
+    return {
+      content: [{ type: "text", text: `Retrieved ${sample.data?.length || 0} sample rows` }],
+      structuredContent: {
+        type: "dataset-sample",
+        datasetId: args.datasetId,
+        ...sample,
+      },
+    };
+  });
+
+  // ==================== BOOKMARKS ====================
+
+  registerAppTool(server, "bookmarks", {
+    title: "List Bookmarks",
+    description: `List all bookmarks in an app. Bookmarks save selection states for quick recall.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const bookmarks = await qlik.getBookmarks(args.appId);
+    const summary = bookmarks.length === 0
+      ? "No bookmarks in this app"
+      : `Found ${bookmarks.length} bookmarks`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "bookmarks",
+        appId: args.appId,
+        bookmarks: bookmarks.map((b: any) => ({
+          id: b.qInfo?.qId,
+          title: b.qData?.title || b.qMeta?.title || "Untitled",
+          description: b.qData?.description || b.qMeta?.description || "",
+          sheetId: b.qData?.sheetId,
+        })),
+      },
+    };
+  });
+
+  registerAppTool(server, "apply_bookmark", {
+    title: "Apply Bookmark",
+    description: `Apply a bookmark to restore its saved selection state.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+      bookmarkId: z.string().describe("Bookmark ID to apply"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const result = await qlik.applyBookmark(args.appId, args.bookmarkId);
+
+    return {
+      content: [{ type: "text", text: `Bookmark applied successfully` }],
+      structuredContent: {
+        type: "action-success",
+        action: "apply_bookmark",
+        ...result,
+      },
+    };
+  });
+
+  // ==================== VARIABLES ====================
+
+  registerAppTool(server, "variables", {
+    title: "List Variables",
+    description: `List all variables in an app. Variables store values and expressions that can be used across the app.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const variables = await qlik.getVariables(args.appId);
+    const summary = variables.length === 0
+      ? "No variables in this app"
+      : `Found ${variables.length} variables`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "variables",
+        appId: args.appId,
+        variables: variables.map((v: any) => ({
+          id: v.qInfo?.qId,
+          name: v.qName,
+          definition: v.qDefinition,
+          isScriptCreated: v.qIsScriptCreated,
+          tags: v.qData?.tags || [],
+        })),
+      },
+    };
+  });
+
+  registerAppTool(server, "set_variable", {
+    title: "Set Variable Value",
+    description: `Set the value of a variable in an app.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+      variableName: z.string().describe("Variable name"),
+      value: z.string().describe("New value for the variable"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const result = await qlik.setVariable(args.appId, args.variableName, args.value);
+
+    return {
+      content: [{ type: "text", text: `Variable "${args.variableName}" set to "${args.value}"` }],
+      structuredContent: {
+        type: "action-success",
+        action: "set_variable",
+        ...result,
+      },
+    };
+  });
+
+  // ==================== STORIES ====================
+
+  registerAppTool(server, "stories", {
+    title: "List Stories",
+    description: `List all data stories in an app. Stories are presentation-style narratives using snapshots.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const stories = await qlik.getStories(args.appId);
+    const summary = stories.length === 0
+      ? "No stories in this app"
+      : `Found ${stories.length} stories`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "stories",
+        appId: args.appId,
+        stories: stories.map((s: any) => ({
+          id: s.qInfo?.qId,
+          title: s.qData?.title || s.qMeta?.title || "Untitled",
+          description: s.qData?.description || s.qMeta?.description || "",
+          thumbnail: s.qData?.thumbnail,
+        })),
+      },
+    };
+  });
+
+  // ==================== APP SCRIPT ====================
+
+  registerAppTool(server, "app_script", {
+    title: "Get App Load Script",
+    description: `Get the data load script of an app. The script defines data sources, transformations, and the data model.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const script = await qlik.getAppScript(args.appId);
+    const lines = script.split("\n").length;
+
+    return {
+      content: [{ type: "text", text: `Script retrieved (${lines} lines)` }],
+      structuredContent: {
+        type: "app-script",
+        appId: args.appId,
+        script,
+        lineCount: lines,
+      },
+    };
+  });
+
+  // ==================== CONNECTIONS ====================
+
+  registerAppTool(server, "app_connections", {
+    title: "Get App Connections",
+    description: `List all data connections used by an app.`,
+    inputSchema: {
+      appId: z.string().describe("App ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const connections = await qlik.getConnections(args.appId);
+    const summary = connections.length === 0
+      ? "No connections in this app"
+      : `Found ${connections.length} connections`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "app-connections",
+        appId: args.appId,
+        connections: connections.map((c: any) => ({
+          id: c.qId,
+          name: c.qName,
+          type: c.qType,
+          connectionString: c.qConnectionString,
+        })),
+      },
+    };
+  });
+
+  registerAppTool(server, "data_connections", {
+    title: "List Data Connections",
+    description: `List all data connections at the tenant level. These are shared connections available across spaces.`,
+    inputSchema: {},
+    _meta: { ui: { resourceUri } },
+  }, async (): Promise<CallToolResult> => {
+    const connections = await qlik.getDataConnections();
+    const summary = connections.length === 0
+      ? "No data connections found"
+      : `Found ${connections.length} data connections`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        type: "data-connections",
+        connections: connections.map((c: any) => ({
+          id: c.id,
+          name: c.name || c.qName,
+          type: c.type || c.qType,
+          spaceId: c.spaceId,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        })),
+      },
+    };
+  });
+
+  registerAppTool(server, "data_connection_details", {
+    title: "Get Data Connection Details",
+    description: `Get detailed information about a specific data connection.`,
+    inputSchema: {
+      connectionId: z.string().describe("Data connection ID"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    const connection = await qlik.getDataConnection(args.connectionId);
+
+    return {
+      content: [{ type: "text", text: `Connection: ${connection.name || connection.qName}` }],
+      structuredContent: {
+        type: "data-connection-detail",
+        ...connection,
       },
     };
   });
