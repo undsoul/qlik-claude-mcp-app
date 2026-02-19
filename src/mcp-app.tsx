@@ -1465,67 +1465,62 @@ function AssistantDetail({ data, sendAction }: { data: any; sendAction: (action:
   };
 
   return (
-    <div className="assistant-detail-card">
-      <div className="assistant-detail-header">
-        <div className="assistant-icon-box">
-          <Bot size={32} strokeWidth={1.5} />
-        </div>
-        <div className="assistant-info">
-          <h2 className="assistant-name">{data.name}</h2>
-          {data.description && <p className="assistant-desc">{data.description}</p>}
-        </div>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">{data.name}</span>
+        {data.status && <span className={`results-badge ${data.status.toLowerCase() === "active" ? "green" : ""}`}>{data.status}</span>}
       </div>
-      <div className="assistant-meta">
-        <div className="meta-item">
-          <span className="meta-label">Created</span>
-          <span className="meta-value">{formatDate(data.createdAt)}</span>
+      <div className="results-content">
+        <Bot size={24} strokeWidth={1.5} style={{ color: 'var(--accent)' }} />
+        {data.description && <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{data.description}</span>}
+      </div>
+      <div className="results-details">
+        <div className="detail-row">
+          <span className="detail-label">Created</span>
+          <span className="detail-value">{formatDate(data.createdAt)}</span>
         </div>
         {data.updatedAt && (
-          <div className="meta-item">
-            <span className="meta-label">Updated</span>
-            <span className="meta-value">{formatDate(data.updatedAt)}</span>
+          <div className="detail-row">
+            <span className="detail-label">Updated</span>
+            <span className="detail-value">{formatDate(data.updatedAt)}</span>
           </div>
         )}
         {data.ownerId && (
-          <div className="meta-item">
-            <span className="meta-label">Owner</span>
-            <span className="meta-value">{data.ownerName || data.ownerId}</span>
-          </div>
-        )}
-        {data.status && (
-          <div className="meta-item">
-            <span className="meta-label">Status</span>
-            <span className={`status-badge status-${data.status.toLowerCase()}`}>{data.status}</span>
+          <div className="detail-row">
+            <span className="detail-label">Owner</span>
+            <span className="detail-value">{data.ownerName || data.ownerId}</span>
           </div>
         )}
         {data.visibility && (
-          <div className="meta-item">
-            <span className="meta-label">Visibility</span>
-            <span className="meta-value">{data.visibility}</span>
+          <div className="detail-row">
+            <span className="detail-label">Visibility</span>
+            <span className="detail-value">{data.visibility}</span>
           </div>
         )}
         {data.spaceId && (
-          <div className="meta-item">
-            <span className="meta-label">Space</span>
-            <span className="meta-value">{data.spaceName || data.spaceId}</span>
+          <div className="detail-row">
+            <span className="detail-label">Space</span>
+            <span className="detail-value">{data.spaceName || data.spaceId}</span>
           </div>
         )}
-        <div className="meta-item">
-          <span className="meta-label">ID</span>
-          <span className="meta-value" style={{ fontSize: 11, fontFamily: "monospace" }}>{data.id}</span>
+        <div className="detail-row">
+          <span className="detail-label">ID</span>
+          <span className="detail-value mono">{data.id}</span>
         </div>
       </div>
-      <div className="assistant-ask-section">
-        <h4>Ask a question</h4>
-        <div className="chat-input">
+      <div className="results-toolbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>Ask a question</span>
+        <div style={{ display: 'flex', gap: 8 }}>
           <input
             type="text"
+            className="filter-input"
             placeholder="e.g., What is the total revenue?"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAsk()}
+            style={{ paddingLeft: 12 }}
           />
-          <button className="btn primary" onClick={handleAsk} disabled={!question.trim()}>
+          <button className="result-action-btn" onClick={handleAsk} disabled={!question.trim()}>
             Ask
           </button>
         </div>
@@ -1537,7 +1532,10 @@ function AssistantDetail({ data, sendAction }: { data: any; sendAction: (action:
 function ChatResponse({ data, callTool }: { data: any; callTool: any }) {
   const [followUp, setFollowUp] = useState("");
   return (
-    <Card header={{ label: "AI Response", title: "Qlik Answers", gradient: "violet" }}>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">Qlik Answers</span>
+      </div>
       <div className="chat-messages">
         <div className="chat-bubble user">
           <div className="bubble-content">{data.question}</div>
@@ -1555,28 +1553,32 @@ function ChatResponse({ data, callTool }: { data: any; callTool: any }) {
         </div>
       )}
       {data.threadId && (
-        <div className="chat-input">
-          <input
-            type="text"
-            placeholder="Follow-up question..."
-            value={followUp}
-            onChange={(e) => setFollowUp(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && followUp.trim()) {
+        <div className="results-toolbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              className="filter-input"
+              placeholder="Follow-up question..."
+              value={followUp}
+              onChange={(e) => setFollowUp(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && followUp.trim()) {
+                  callTool("qlik_answers_ask_question", { assistantId: data.assistantId, question: followUp, threadId: data.threadId });
+                  setFollowUp("");
+                }
+              }}
+              style={{ paddingLeft: 12 }}
+            />
+            <button className="result-action-btn" onClick={() => {
+              if (followUp.trim()) {
                 callTool("qlik_answers_ask_question", { assistantId: data.assistantId, question: followUp, threadId: data.threadId });
                 setFollowUp("");
               }
-            }}
-          />
-          <button className="btn primary" onClick={() => {
-            if (followUp.trim()) {
-              callTool("qlik_answers_ask_question", { assistantId: data.assistantId, question: followUp, threadId: data.threadId });
-              setFollowUp("");
-            }
-          }}>Send</button>
+            }}>Send</button>
+          </div>
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 
