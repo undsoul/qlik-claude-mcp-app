@@ -467,7 +467,6 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "data-products": <DataProductsGrid data={data} callTool={callTool} />,
     "data-product-detail": <DataProductDetail data={data} />,
     "dataset-profile": <DatasetProfileView data={data} />,
-    "dataset-sample": <DatasetSampleView data={data} />,
     "bookmarks": <BookmarksView data={data} sendAction={sendAction} />,
     "variables": <VariablesView data={data} sendAction={sendAction} />,
     "stories": <StoriesView data={data} />,
@@ -3866,40 +3865,6 @@ function DatasetProfileView({ data }: { data: any }) {
   );
 }
 
-// ============ DATASET SAMPLE ============
-function DatasetSampleView({ data }: { data: any }) {
-  const rows = data.data || [];
-  const columns = data.columns || (rows.length > 0 ? Object.keys(rows[0]) : []);
-
-  return (
-    <Card header={{ label: "Sample Data", title: `${rows.length} Rows`, gradient: "blue" }}>
-      {rows.length > 0 ? (
-        <div className="data-table-wrapper">
-          <table className="data-table">
-            <thead>
-              <tr>
-                {columns.map((col: string, idx: number) => (
-                  <th key={idx}>{col}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row: any, idx: number) => (
-                <tr key={idx}>
-                  {columns.map((col: string, cidx: number) => (
-                    <td key={cidx}>{String(row[col] ?? "")}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="empty-state">No sample data available</div>
-      )}
-    </Card>
-  );
-}
 
 // ============ BOOKMARKS ============
 function BookmarksView({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {

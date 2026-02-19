@@ -1408,17 +1408,6 @@ class QlikClient {
     }
   }
 
-  async getDatasetSample(datasetId: string, limit = 10): Promise<any> {
-    try {
-      const resourceId = await this.resolveDatasetResourceId(datasetId);
-      console.error(`[Dataset Sample] Resolved ${datasetId} -> ${resourceId}`);
-      return await this.fetch(`/data-sets/${resourceId}/data?limit=${limit}`);
-    } catch (e) {
-      console.error(`[Dataset Sample] Error: ${e}`);
-      return null;
-    }
-  }
-
   // ==================== BOOKMARKS ====================
 
   async getBookmarks(appId: string): Promise<any[]> {
@@ -3331,33 +3320,6 @@ IMPORTANT: After showing measures, provide a brief summary of what's available.`
         type: "dataset-profile",
         datasetId: args.datasetId,
         profile,
-      },
-    };
-  });
-
-  registerAppTool(server, "dataset_sample", {
-    title: "Get Dataset Sample Data",
-    description: `Get sample data rows from a dataset.`,
-    inputSchema: {
-      datasetId: z.string().describe("Dataset ID"),
-      limit: z.number().optional().default(10).describe("Number of rows to fetch (max 100)"),
-    },
-    _meta: { ui: { resourceUri } },
-  }, async (args): Promise<CallToolResult> => {
-    const sample = await qlik.getDatasetSample(args.datasetId, Math.min(args.limit || 10, 100));
-    if (!sample) {
-      return {
-        content: [{ type: "text", text: "Sample data not available" }],
-        structuredContent: { type: "error", message: "Dataset sample not available" },
-      };
-    }
-
-    return {
-      content: [{ type: "text", text: `Retrieved ${sample.data?.length || 0} sample rows` }],
-      structuredContent: {
-        type: "dataset-sample",
-        datasetId: args.datasetId,
-        ...sample,
       },
     };
   });
