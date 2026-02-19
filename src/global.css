@@ -3040,6 +3040,11 @@
   color: #ef4444;
 }
 
+.results-badge.warning, .results-badge.orange {
+  background: rgba(251, 146, 60, 0.15);
+  color: #f97316;
+}
+
 .results-badge.sm {
   padding: 2px 8px;
   font-size: 10px;
@@ -3901,27 +3906,29 @@
 
 .item-menu {
   position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .item-menu-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 100%;
-  min-height: 52px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-left: none;
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
+  opacity: 0.6;
 }
 
 .item-menu-trigger:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+  opacity: 1;
 }
 
 .item-menu-dropdown {
@@ -5280,6 +5287,75 @@
   color: #267f99;
   border-bottom-color: #267f99;
   background: rgba(38, 127, 153, 0.08);
+}
+
+/* Vertical Script Tabs Layout */
+.script-layout {
+  display: flex;
+  max-height: 600px;
+}
+
+.script-tabs-vertical {
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  min-width: 180px;
+  background: #1e1e1e;
+  border-right: 1px solid #333;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.script-tab-v {
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  color: #858585;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.script-tab-v:hover {
+  color: #d4d4d4;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.script-tab-v.active {
+  color: #4ec9b0;
+  border-left-color: #4ec9b0;
+  background: rgba(78, 201, 176, 0.1);
+}
+
+.light-theme .script-tabs-vertical {
+  background: #f3f3f3;
+  border-right-color: #ddd;
+}
+
+.light-theme .script-tab-v {
+  color: #666;
+}
+
+.light-theme .script-tab-v:hover {
+  color: #333;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light-theme .script-tab-v.active {
+  color: #267f99;
+  border-left-color: #267f99;
+  background: rgba(38, 127, 153, 0.1);
+}
+
+.script-layout .script-container {
+  flex: 1;
+  overflow: auto;
 }
 
 .script-toolbar {

@@ -1130,22 +1130,24 @@ function ReloadStatus({ data }: { data: any }) {
 }
 
 function ReloadDetail({ data }: { data: any }) {
-  const statusGradient = data.status === "SUCCEEDED" ? "green" : data.status === "FAILED" ? "red" : "orange";
+  const statusClass = data.status === "SUCCEEDED" ? "green" :
+                      data.status === "FAILED" ? "error" : "warning";
 
   return (
-    <div className="reload-detail-panel">
-      <div className={`reload-detail-header gradient-${statusGradient}`}>
-        <div className="reload-detail-status">
-          {data.status === "SUCCEEDED" ? <CheckCircle size={24} /> :
-           data.status === "FAILED" ? <XCircle size={24} /> :
-           <RefreshCw size={24} className={data.status === "RUNNING" ? "spinning" : ""} />}
-          <span>{data.status}</span>
-        </div>
-        <div className="reload-detail-meta">
-          {data.startTime && <span>{formatDate(data.startTime)}</span>}
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {data.status === "SUCCEEDED" ? <CheckCircle size={16} /> :
+           data.status === "FAILED" ? <XCircle size={16} /> :
+           <RefreshCw size={16} className={data.status === "RUNNING" ? "spinning" : ""} />}
+          Reload Status
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span className={`results-badge ${statusClass}`}>{data.status}</span>
+          {data.startTime && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatDate(data.startTime)}</span>}
           {data.historyLink && (
-            <a href={data.historyLink} target="_blank" rel="noopener noreferrer" className="btn-history-link">
-              <ExternalLink size={14} /> View in Qlik
+            <a href={data.historyLink} target="_blank" rel="noopener noreferrer" className="small-btn">
+              <ExternalLink size={12} /> View in Qlik
             </a>
           )}
         </div>
@@ -4000,10 +4002,19 @@ function AppScriptView({ data }: { data: any }) {
   const tabs = parseTabs();
   const [activeTab, setActiveTab] = useState(0);
 
-  // Get lines for current tab
+  // Get lines for current tab, filtering out the //$tab marker line
   const currentTab = tabs[activeTab];
-  const tabLines = currentTab ? allLines.slice(currentTab.startLine, currentTab.endLine + 1) : allLines;
-  const startLineNum = currentTab ? currentTab.startLine + 1 : 1;
+  const rawTabLines = currentTab ? allLines.slice(currentTab.startLine, currentTab.endLine + 1) : allLines;
+
+  // Filter out //$tab marker lines and track original line numbers
+  const filteredLines: Array<{ line: string; lineNum: number }> = [];
+  rawTabLines.forEach((line, i) => {
+    const cleanLine = line.replace(/\r/g, '').trim();
+    const isTabMarker = /^\/\/+\$tab\s+/i.test(cleanLine);
+    if (!isTabMarker) {
+      filteredLines.push({ line, lineNum: (currentTab?.startLine || 0) + i + 1 });
+    }
+  });
 
   // Syntax highlighting for Qlik Load Script
   const highlightLine = (line: string): React.ReactNode => {
@@ -4111,33 +4122,36 @@ function AppScriptView({ data }: { data: any }) {
         <span className="results-count">{lineCount} lines</span>
         <span className="results-badge">{(script.length / 1024).toFixed(1)} KB</span>
       </div>
-      {/* Tab bar - always show if tabs exist */}
-      {tabs.length > 0 && (
-        <div className="script-tabs">
-          {tabs.map((tab, i) => (
-            <button
-              key={i}
-              className={`script-tab ${activeTab === i ? 'active' : ''}`}
-              onClick={() => setActiveTab(i)}
-            >
-              {tab.name}
-            </button>
-          ))}
+      <div className="script-layout">
+        {/* Vertical tab sidebar */}
+        {tabs.length > 0 && (
+          <div className="script-tabs-vertical">
+            {tabs.map((tab, i) => (
+              <button
+                key={i}
+                className={`script-tab-v ${activeTab === i ? 'active' : ''}`}
+                onClick={() => setActiveTab(i)}
+              >
+                {tab.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Script content */}
+        <div className="script-container">
+          <div className="line-numbers">
+            {filteredLines.map((item, i) => (
+              <div key={i} className="line-number">{item.lineNum}</div>
+            ))}
+          </div>
+          <pre className="script-code-highlighted">
+            {filteredLines.map((item, i) => (
+              <div key={i} className="code-line">
+                {highlightLine(item.line) || " "}
+              </div>
+            ))}
+          </pre>
         </div>
-      )}
-      <div className="script-container">
-        <div className="line-numbers">
-          {tabLines.map((_: string, i: number) => (
-            <div key={i} className="line-number">{startLineNum + i}</div>
-          ))}
-        </div>
-        <pre className="script-code-highlighted">
-          {tabLines.map((line: string, i: number) => (
-            <div key={i} className="code-line">
-              {highlightLine(line) || " "}
-            </div>
-          ))}
-        </pre>
       </div>
     </div>
   );
