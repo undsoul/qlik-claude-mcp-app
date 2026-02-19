@@ -3705,47 +3705,93 @@ function DataProductDetail({ data }: { data: any }) {
 
 // ============ DATASET PROFILE ============
 function DatasetProfileView({ data }: { data: any }) {
-  const profile = data.profile || {};
+  // Parse the nested Qlik API structure
+  // profile.data[0].profiles[0].fieldProfiles
+  const profileData = data.profile?.data?.[0];
+  const tableProfile = profileData?.profiles?.[0];
+  const fieldProfiles = tableProfile?.fieldProfiles || [];
+  const meta = profileData?.meta || {};
+
+  const tableName = tableProfile?.name || "Dataset";
+  const rowCount = tableProfile?.numberOfRows;
+  const sizeBytes = tableProfile?.sizeInBytes;
+
+  // Format bytes to human readable
+  const formatBytes = (bytes: number) => {
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + " GB";
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + " MB";
+    if (bytes >= 1024) return (bytes / 1024).toFixed(2) + " KB";
+    return bytes + " B";
+  };
+
+  const getDataTypeColor = (type: string) => {
+    switch (type?.toUpperCase()) {
+      case "STRING": return "type-string";
+      case "INTEGER": case "DOUBLE": case "NUMBER": return "type-number";
+      case "DATE": case "TIMESTAMP": return "type-date";
+      case "BOOLEAN": return "type-boolean";
+      default: return "";
+    }
+  };
 
   return (
-    <Card header={{ label: "Dataset Profile", title: "Data Quality & Statistics", gradient: "cyan" }}>
-      <div className="profile-content">
-        {profile.rowCount !== undefined && (
-          <div className="profile-stat">
-            <span className="stat-label">Rows</span>
-            <span className="stat-value">{profile.rowCount.toLocaleString()}</span>
-          </div>
-        )}
-        {profile.columnCount !== undefined && (
-          <div className="profile-stat">
-            <span className="stat-label">Columns</span>
-            <span className="stat-value">{profile.columnCount}</span>
-          </div>
-        )}
-        {profile.completeness !== undefined && (
-          <div className="profile-stat">
-            <span className="stat-label">Completeness</span>
-            <span className="stat-value">{(profile.completeness * 100).toFixed(1)}%</span>
-          </div>
-        )}
-        {profile.columns && profile.columns.length > 0 && (
-          <div className="profile-columns">
-            <h4>Column Statistics</h4>
-            {profile.columns.map((col: any, idx: number) => (
-              <div key={idx} className="profile-column">
-                <span className="col-name">{col.name}</span>
-                <span className="col-type">{col.type}</span>
-                {col.nullCount !== undefined && <span className="col-nulls">{col.nullCount} nulls</span>}
-                {col.distinctCount !== undefined && <span className="col-distinct">{col.distinctCount} distinct</span>}
-              </div>
-            ))}
-          </div>
-        )}
-        {!profile.rowCount && !profile.columns && (
-          <div className="empty-state">Profile data not available</div>
-        )}
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Database size={16} />
+          {tableName}
+        </span>
+        <div className="results-badges">
+          {rowCount && <span className="results-badge">{rowCount.toLocaleString()} rows</span>}
+          {sizeBytes && <span className="results-badge">{formatBytes(sizeBytes)}</span>}
+          {fieldProfiles.length > 0 && <span className="results-badge">{fieldProfiles.length} fields</span>}
+        </div>
       </div>
-    </Card>
+
+      {meta.status && (
+        <div className="profile-meta">
+          <span className={`status-badge ${meta.status === 'FINISHED' ? 'green' : ''}`}>{meta.status}</span>
+          {meta.computationEndTime && (
+            <span className="meta-date">Profiled: {new Date(meta.computationEndTime).toLocaleDateString()}</span>
+          )}
+        </div>
+      )}
+
+      {fieldProfiles.length > 0 ? (
+        <div className="field-profiles-table">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Field Name</th>
+                <th>Type</th>
+                <th>Distinct Values</th>
+                <th>Tags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fieldProfiles.map((field: any, idx: number) => (
+                <tr key={idx}>
+                  <td className="mono" style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{field.index}</td>
+                  <td className="field-name">{field.name}</td>
+                  <td><span className={`field-type-badge ${getDataTypeColor(field.dataType)}`}>{field.dataType}</span></td>
+                  <td className="mono">{field.distinctValueCount?.toLocaleString() || '-'}</td>
+                  <td>
+                    <div className="field-tags">
+                      {field.tags?.slice(0, 3).map((tag: string, i: number) => (
+                        <span key={i} className="field-tag">{tag.replace('$', '')}</span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty-state">Profile data not available</div>
+      )}
+    </div>
   );
 }
 

@@ -917,22 +917,68 @@ class QlikClient {
       // Get the field
       const field = await app.getField(fieldName);
 
-      // Select values by text
-      // First, we need to search and select
-      // Use selectValues with qTextSearch
-      await field.clear(); // Clear previous selections on this field
+      // Clear previous selections on this field
+      await field.clear();
 
-      // Select values one by one or use selectMatch for text values
-      for (const val of values) {
-        await field.selectMatch(val, false); // false = don't toggle, just add
+      // Get field data to find element numbers for values we want to select
+      // Create a session object for the field listobject
+      const listDef = {
+        qDef: {
+          qFieldDefs: [fieldName],
+        },
+        qInitialDataFetch: [{ qTop: 0, qLeft: 0, qHeight: 10000, qWidth: 1 }],
+      };
+
+      const listObj = await app.createSessionObject({
+        qInfo: { qType: "temp-list" },
+        qListObjectDef: listDef,
+      });
+
+      const listLayout = await listObj.getLayout();
+      const dataPages = listLayout.qListObject?.qDataPages || [];
+      const matrix = dataPages[0]?.qMatrix || [];
+
+      // Find element numbers for requested values
+      const elemNumbers: number[] = [];
+      const foundValues: string[] = [];
+
+      for (const requestedVal of values) {
+        const strVal = String(requestedVal).toLowerCase();
+        for (const row of matrix) {
+          const cell = row[0];
+          if (cell && String(cell.qText).toLowerCase() === strVal) {
+            elemNumbers.push(cell.qElemNumber);
+            foundValues.push(cell.qText);
+            break;
+          }
+        }
+      }
+
+      // Clean up session object
+      await app.destroySessionObject(listObj.id);
+
+      // Select values by element numbers
+      if (elemNumbers.length > 0) {
+        await field.selectValues(
+          elemNumbers.map((n) => ({ qNumber: n, qIsNumeric: true })),
+          false, // toggle off
+          false  // soft lock off
+        );
       }
 
       const appLayout = await app.getAppLayout();
       const appName = appLayout.qTitle || appId;
 
       await session.close();
-      console.error(`[Selections] Selected ${values.length} values in "${fieldName}"`);
-      return { appId, appName, field: fieldName, selectedCount: values.length, values };
+      console.error(`[Selections] Selected ${elemNumbers.length} values in "${fieldName}": ${foundValues.join(", ")}`);
+      return {
+        appId,
+        appName,
+        field: fieldName,
+        selectedCount: elemNumbers.length,
+        requestedValues: values,
+        foundValues,
+      };
     } catch (err) {
       await session.close();
       throw err;
