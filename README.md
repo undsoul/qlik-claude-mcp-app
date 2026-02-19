@@ -4,7 +4,7 @@ A full-featured Model Context Protocol (MCP) server that connects Claude Desktop
 
 ## Features
 
-### 36 MCP Tools with Rich UI
+### 58 MCP Tools with Rich UI
 
 | Category | Tools | Description |
 |----------|-------|-------------|
@@ -19,20 +19,39 @@ A full-featured Model Context Protocol (MCP) server that connects Claude Desktop
 | **Qlik Answers** | `assistants`, `assistant`, `ask_assistant` | AI assistants for Q&A |
 | **Insight Advisor** | `insight` | Natural language charts with real data |
 | **ML/AutoML** | `experiments`, `experiment`, `deployments`, `deployment` | ML experiments and deployments |
-| **Data** | `lineage`, `dataset` | Data lineage and dataset details |
-| **Selections** | `select`, `clear_selections`, `selections`, `fields` | Interactive app selections |
+| **Data** | `lineage`, `dataset`, `dataset_profile` | Data lineage, dataset details, profiling |
+| **Selections** | `select`, `clear_selections`, `selections`, `fields`, `field_values` | Interactive app selections via Engine API |
+| **Sheets** | `list_sheets`, `sheet_details` | List app sheets and view objects |
+| **Master Items** | `master_dimensions`, `master_measures` | Explore master dimensions and measures |
+| **Bookmarks** | `bookmarks`, `apply_bookmark` | List and apply bookmarks |
+| **Variables** | `variables`, `set_variable` | List and modify app variables |
+| **Stories** | `stories` | List data stories |
+| **Script** | `app_script` | View app load script with syntax highlighting |
+| **Connections** | `app_connections`, `data_connections`, `data_connection_details` | App and tenant-level data connections |
+| **Glossary** | `glossaries`, `glossary_details`, `glossary_term`, `create_glossary_term`, `delete_glossary_term` | Business glossary management |
+| **Data Products** | `data_products`, `data_product_details` | Data product catalog |
 
 ### UI Components
 
-The MCP App renders beautiful, interactive UI cards in Claude Desktop:
+The MCP App renders beautiful, interactive UI components in Claude Desktop:
 
-- **Grid Views**: Apps, spaces, users, automations, alerts, assistants
-- **Detail Cards**: Rich information cards with metadata
+- **Unified Design System**: Consistent `results-panel` style with green accent headers across all views
+- **Grid Views**: Apps, spaces, users, automations, alerts, assistants, sheets, glossaries, data products, connections with search filters, sorting, and pagination
+- **Detail Views**: Rich information panels for apps, sheets, bookmarks, variables, stories, experiments, deployments
 - **Charts**: Real-time Insight Advisor charts (bar, line, pie, scatter, polar, radar, doughnut, area)
-- **Tables**: Data tables with multiple dimensions and measures
-- **Timelines**: Reload history, automation runs
-- **Lineage Graphs**: Data lineage visualization with impact analysis
-- **Interactive Elements**: Filters, sorting, pagination, action buttons, 3-dot menus
+- **Data Tables**: Multi-column tables with dimensions and measures
+- **Timelines**: Reload history, automation runs with status indicators
+- **Lineage Views**:
+  - App data model with tables, rows, fields statistics
+  - Graph-based upstream/downstream lineage with nodes and edges
+- **Script Editor**:
+  - Vertical tab navigation for script sections
+  - Full Qlik syntax highlighting (keywords, functions, variables, strings, comments)
+  - Hidden `///$tab` markers with preserved line numbers
+- **Dataset Profiling**: Field statistics with type badges, distinct values, tags
+- **Master Items**: Dimensions and measures with expressions
+- **Interactive Elements**: Action buttons, 3-dot menus, bookmark apply, variable editing
+- **Theme Support**: Automatic dark/light theme via MCP SDK
 
 ### Smart Chart Type Detection
 
@@ -47,6 +66,18 @@ Ask for specific chart types in natural language:
 
 Supported chart types: bar, line, pie, doughnut, polar, radar, scatter, area, treemap, table
 
+### Engine API Integration
+
+Full Qlik Engine API support via WebSocket (Enigma.js):
+
+- **Selections**: Select values by field name with automatic element number resolution
+- **Field Values**: Browse all values in any field
+- **Bookmarks**: Apply bookmarks to restore selection states
+- **Variables**: Read and update app variables
+- **Script**: Full load script with tab parsing
+- **Sheets**: List sheets and their objects
+- **Master Items**: Dimensions and measures with formulas
+
 ## Architecture
 
 ```
@@ -55,16 +86,13 @@ qlik-claude-mcp-app/
 ├── main.ts                # Entry point - stdio transport
 ├── mcp-app.html           # HTML template for UI
 ├── src/
-│   ├── mcp-app.tsx        # React UI components (90+ KB)
-│   ├── global.css         # Global styles (53+ KB)
-│   ├── mcp-app.module.css # Module styles
+│   ├── mcp-app.tsx        # React UI components
+│   ├── global.css         # Global styles with theme support
 │   └── vite-env.d.ts      # TypeScript environment
-├── assets/
-│   └── qlik-icon.svg      # Qlik icon
 ├── dist/                  # Build output
 │   ├── index.js           # Bundled entry point
 │   ├── server.js          # Bundled server
-│   └── mcp-app.html       # Single-file UI bundle
+│   └── mcp-app.html       # Single-file UI bundle (~1MB)
 ├── package.json
 ├── tsconfig.json
 ├── tsconfig.server.json
@@ -73,7 +101,7 @@ qlik-claude-mcp-app/
 
 ### Key Components
 
-#### server.ts - MCP Server (~64KB)
+#### server.ts - MCP Server
 
 The heart of the application containing:
 
@@ -88,35 +116,42 @@ The heart of the application containing:
   - Qlik Answers API (assistants, threads, invoke)
   - Insight Advisor API (recommendations, chart data)
   - AutoML API (experiments, deployments)
-  - Data Lineage API
-  - Datasets API
-  - Engine API via Enigma.js (selections, field values, app generation)
+  - Data Lineage API (graph with nodes/edges)
+  - Datasets API (details, profile)
+  - Glossary API (glossaries, terms, categories)
+  - Data Connections API (tenant and app level)
+  - Engine API via Enigma.js (selections, field values, sheets, master items, bookmarks, variables, stories, script, app generation)
 
-- **Tool Registrations**: 36 tools with Zod schemas for input validation
+- **Tool Registrations**: 58 tools with Zod schemas for input validation
 - **Auto-Pagination**: Fetches all results using cursor-based pagination
 - **WebSocket Integration**: Enigma.js for Qlik Engine communication
+- **Smart ID Resolution**: Automatic dataset item ID to QRI resolution
 
-#### mcp-app.tsx - React UI (~100KB)
+#### mcp-app.tsx - React UI
 
-Comprehensive UI components including:
+Comprehensive UI components using MCP SDK v1.0.1:
 
-- **Grid Components**: AppsGrid, SpacesGrid, UsersGrid, AutomationsGrid, AlertsGrid, AssistantsGrid, ExperimentsGrid, DeploymentsGrid, DatasetsGrid
-- **Detail Components**: AppDetail, SpaceDetail, UserDetail, AutomationDetail, AlertDetail, AssistantDetail, ExperimentDetail, DatasetDetail
-- **Visualization**: ChartView (bar, line, pie, doughnut, polar, radar, scatter, area), LineageView, AppLineageView, DataTable
-- **Interactive**: ReloadsTimeline, AutomationRuns, SelectionsPanel, FieldValuesModal, ItemMenu (3-dot menu)
-- **Common**: Card, Pagination, StatusBadge, ErrorCard, ActionSuccess
+- **Theme Hooks**: `useHostStyleVariables()`, `useHostFonts()`, `useDocumentTheme()`
+- **Grid Components**: AppsGrid, SpacesGrid, UsersGrid, AutomationsGrid, AlertsGrid, AssistantsGrid, ExperimentsGrid, DeploymentsGrid, DatasetsGrid, SheetsGrid, GlossariesGrid, DataProductsGrid, DataConnectionsGrid
+- **Detail Components**: AppDetail, SpaceDetail, UserDetail, AutomationDetail, AlertDetail, AssistantDetail, ExperimentDetail, DeploymentDetail, DatasetDetail, SheetDetail, GlossaryDetail, GlossaryTermView, DataProductDetail, DataConnectionDetail
+- **Visualization**: ChartView (8 chart types), LineageView (graph), AppLineageView (tables), DatasetProfileView (field statistics)
+- **App Content**: SheetsGrid, MasterDimensionsView, MasterMeasuresView, BookmarksView, VariablesView, StoriesView, AppScriptView (with syntax highlighting), AppConnectionsView, FieldValuesView, SelectionsPanel
+- **Interactive**: ReloadsTimeline, AutomationRuns, ItemMenu (3-dot context menu)
+- **Common**: Pagination, StatusBadge, ErrorCard, ActionSuccess
 - **40-color palette** for rich pie/doughnut/polar/radar charts
 
-#### global.css - Styles (~53KB)
+#### global.css - Styles
 
 Complete styling system with:
-- Dark theme optimized for Claude Desktop
-- Card layouts with gradient headers
+- Dark and light theme support
+- Unified `results-panel` design with green accent
+- Qlik script syntax highlighting (keywords, functions, variables, strings, comments, data types)
+- Vertical script tabs navigation
 - Grid and list views
 - Chart styling
-- Status badges and indicators
+- Status badges and type indicators
 - Responsive design
-- Animation and transitions
+- Animations and transitions
 
 ## Installation
 
@@ -206,11 +241,23 @@ List all automations and show the run history for the data refresh automation
 ### Make selections
 ```
 Select "USA" in the Country field for the Sales app
+Show me field values for Product Category in the Sales app
+Clear all selections in the Sales app
+```
+
+### View app script
+```
+Show me the load script for the Sales app
 ```
 
 ### Generate an app
 ```
 Generate a Qlik Sense app for tracking sales performance with revenue, profit, and customer metrics
+```
+
+### Dataset profiling
+```
+Show me the profile for dataset 697b4aac376930e8e2843ee9
 ```
 
 ## Development
@@ -259,9 +306,13 @@ registerAppTool(server, "my_tool", {
 ```typescript
 function MyView({ data }: { data: any }) {
   return (
-    <Card header={{ label: "Category", title: data.name, gradient: "blue" }}>
-      {/* Your UI here */}
-    </Card>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count">Title</span>
+        <span className="results-badge">Badge</span>
+      </div>
+      {/* Your content here */}
+    </div>
   );
 }
 ```
@@ -279,7 +330,7 @@ const views: Record<string, React.ReactNode> = {
 ### Tool Types
 
 - **Tools with UI**: Use `registerAppTool()` - returns `structuredContent` for rendering
-- **Tools without UI**: Use `server.registerTool()` - returns plain text only (like `ask_assistant`)
+- **Tools without UI**: Use `server.registerTool()` - returns plain text only
 
 ## Environment Variables
 
@@ -302,8 +353,8 @@ The API key needs access to the following Qlik Cloud APIs:
 - **Insight Advisor** - Get recommendations and chart data
 - **AutoML** - Read experiments and deployments
 - **Data Lineage** - Read lineage information
-- **Datasets** - Read dataset details
-- **Engine** - WebSocket access for selections and app generation
+- **Datasets** - Read dataset details and profiles
+- **Engine** - WebSocket access for selections, fields, bookmarks, variables, script
 
 ## Tech Stack
 
@@ -312,7 +363,7 @@ The API key needs access to the following Qlik Cloud APIs:
 | Runtime | Node.js 18+ |
 | Bundler | Bun |
 | MCP SDK | @modelcontextprotocol/sdk |
-| MCP Apps | @modelcontextprotocol/ext-apps |
+| MCP Apps | @modelcontextprotocol/ext-apps v1.0.1 |
 | UI Framework | React 19 |
 | Language | TypeScript |
 | Charts | Chart.js + react-chartjs-2 |
@@ -329,11 +380,23 @@ The API key needs access to the following Qlik Cloud APIs:
 
 3. **UI Rendering**: The response includes `structuredContent` that Claude Desktop renders using the registered UI resource
 
-4. **User Interaction**: The UI can call back to the server using `callTool()` or prompt Claude with `sendAction()`
+4. **Theme Integration**: The UI automatically adapts to Claude Desktop's theme using MCP SDK hooks
 
-5. **Engine Integration**: For advanced features like selections and app generation, the server opens WebSocket connections to Qlik Engine via Enigma.js
+5. **User Interaction**: The UI can call back to the server using `callTool()` or prompt Claude with `sendAction()`
 
-6. **Smart ID Resolution**: The lineage tool automatically resolves dataset item IDs to their QRI identifiers, allowing seamless lineage lookups from any item list
+6. **Engine Integration**: For advanced features like selections, the server opens WebSocket connections to Qlik Engine via Enigma.js with automatic element number resolution
+
+7. **Smart ID Resolution**: The lineage tool automatically resolves dataset item IDs to their QRI identifiers
+
+## Recent Updates
+
+- **Unified Design**: All views now use consistent `results-panel` style with green accent
+- **Script Tabs**: Vertical tab navigation with `///$tab` marker parsing
+- **Syntax Highlighting**: Full Qlik script syntax highlighting (50+ keyword categories)
+- **Engine API Selections**: Fixed `select` tool using proper element number resolution
+- **Dataset Profile**: Field statistics table with type badges and tags
+- **Lineage Tables**: Show app data model with tables, rows, and field counts
+- **Theme Support**: Automatic dark/light mode via MCP SDK v1.0.1
 
 ## License
 
