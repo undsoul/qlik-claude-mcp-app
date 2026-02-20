@@ -1747,6 +1747,104 @@ Simply say "Here are the details" or ask what the user wants to do next.`,
     };
   });
 
+  // ==================== APP CONTEXT (COMPOSITE) ====================
+
+  registerAppTool(server, "app_context", {
+    title: "Get Full App Context",
+    description: `Get comprehensive app metadata in ONE call for analysis and report generation. Returns ALL context without showing UI.
+
+This tool fetches: data model (tables & fields), sheets, master dimensions, master measures, bookmarks, and variables.
+
+**IMPORTANT**: Use this tool when you need to understand an app's structure before generating reports, dashboards, or analysis. This avoids showing multiple UI panels to the user.
+
+Example: "Create an executive report for the Sales app" → First call app_context to understand the app, then use insight tool to create visualizations.`,
+    inputSchema: {
+      appId: z.string().describe("App ID to get full context from"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    // Fetch all metadata in parallel for performance
+    const [
+      appDetails,
+      fieldsData,
+      sheets,
+      masterDims,
+      masterMeasures,
+      bookmarks,
+      variables
+    ] = await Promise.all([
+      qlik.getApp(args.appId).catch(() => null),
+      qlik.getAppFields(args.appId).catch(() => ({ tables: [] })),
+      qlik.getSheets(args.appId).catch(() => []),
+      qlik.getMasterDimensions(args.appId).catch(() => []),
+      qlik.getMasterMeasures(args.appId).catch(() => []),
+      qlik.getBookmarks(args.appId).catch(() => []),
+      qlik.getVariables(args.appId).catch(() => []),
+    ]);
+
+    const attrs = appDetails?.attributes || appDetails || {};
+    const tables = fieldsData.tables || [];
+
+    // Build comprehensive text summary
+    const sections: string[] = [];
+
+    // App Info
+    sections.push(`## App: ${attrs.name || args.appId}`);
+    if (attrs.description) sections.push(`Description: ${attrs.description}`);
+    sections.push(`Last Reload: ${attrs.lastReloadTime || "Never"}`);
+
+    // Data Model
+    sections.push(`\n## Data Model (${tables.length} tables)`);
+    for (const table of tables) {
+      const fieldNames = table.fields?.map((f: any) => f.name).join(", ") || "";
+      sections.push(`- ${table.name}: ${fieldNames}`);
+    }
+
+    // Sheets
+    sections.push(`\n## Sheets (${sheets.length})`);
+    for (const sheet of sheets) {
+      sections.push(`- ${sheet.title}${sheet.description ? `: ${sheet.description}` : ""}`);
+    }
+
+    // Master Dimensions
+    sections.push(`\n## Master Dimensions (${masterDims.length})`);
+    for (const dim of masterDims) {
+      const def = dim.definition || dim.fieldDefs?.join(", ") || "";
+      sections.push(`- ${dim.title}: ${def}`);
+    }
+
+    // Master Measures
+    sections.push(`\n## Master Measures (${masterMeasures.length})`);
+    for (const measure of masterMeasures) {
+      sections.push(`- ${measure.title}: ${measure.expression || ""}`);
+    }
+
+    // Bookmarks
+    if (bookmarks.length > 0) {
+      sections.push(`\n## Bookmarks (${bookmarks.length})`);
+      for (const bm of bookmarks) {
+        const title = bm.qData?.title || bm.qMeta?.title || "Untitled";
+        sections.push(`- ${title}`);
+      }
+    }
+
+    // Variables
+    const userVars = variables.filter((v: any) => !v.qIsScriptCreated && !v.qIsReserved);
+    if (userVars.length > 0) {
+      sections.push(`\n## Variables (${userVars.length} user-defined)`);
+      for (const v of userVars.slice(0, 20)) {
+        sections.push(`- ${v.qName}: ${v.qDefinition || "(no definition)"}`);
+      }
+    }
+
+    const contextText = sections.join("\n");
+
+    return {
+      content: [{ type: "text", text: contextText }],
+      // No structuredContent = no UI shown
+    };
+  });
+
   // ==================== SPACES CATALOG ====================
 
   registerAppTool(server, "spaces", {
@@ -2823,9 +2921,10 @@ Use this to filter data by selecting specific values in a field.`,
     title: "Get Available Fields",
     description: `Get all available fields in a Qlik app's data model.
 
-IMPORTANT: After showing the data model, provide a brief summary (e.g., "Data model has 5 tables, largest is Sales with 12 fields").`,
+Use silent=true when gathering context for analysis (no UI shown). Use silent=false (default) when user wants to see the data model.`,
     inputSchema: {
       appId: z.string().describe("App ID to get fields from"),
+      silent: z.boolean().optional().default(false).describe("When true, returns data without UI (for context gathering)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
@@ -2842,7 +2941,15 @@ IMPORTANT: After showing the data model, provide a brief summary (e.g., "Data mo
       ? `, largest table: ${largestTable.name} (${largestTable.fields?.length || 0} fields)`
       : "";
 
-    const summary = `Data model: ${tables.length} tables, ${fields.length} total fields${largestInfo}`;
+    const tablesSummary = tables.map((t: any) => `${t.name}: ${t.fields?.map((f: any) => f.name).join(", ")}`).join("\n");
+    const summary = `Data model: ${tables.length} tables, ${fields.length} total fields${largestInfo}\n\n${tablesSummary}`;
+
+    // Silent mode: return text only, no UI
+    if (args.silent) {
+      return {
+        content: [{ type: "text", text: summary }],
+      };
+    }
 
     return {
       content: [{ type: "text", text: summary }],
@@ -2993,14 +3100,22 @@ FROM [lib://SPACE_NAME:DataFiles/filename.qvd] (qvd);`,
     title: "List Sheets",
     description: `List all sheets in a Qlik app.
 
-IMPORTANT: After showing sheets, provide a brief summary (e.g., "App has 5 sheets including Dashboard, Sales Analysis, and KPIs").`,
+Use silent=true when gathering context for analysis (no UI shown).`,
     inputSchema: {
       appId: z.string().describe("App ID to list sheets from"),
+      silent: z.boolean().optional().default(false).describe("When true, returns data without UI (for context gathering)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const sheets = await qlik.getSheets(args.appId);
-    const summary = `Found ${sheets.length} sheets: ${sheets.slice(0, 3).map((s: any) => s.title).join(", ")}${sheets.length > 3 ? "..." : ""}`;
+    const sheetList = sheets.map((s: any) => `- ${s.title}${s.description ? `: ${s.description}` : ""}`).join("\n");
+    const summary = `Found ${sheets.length} sheets:\n${sheetList}`;
+
+    if (args.silent) {
+      return {
+        content: [{ type: "text", text: summary }],
+      };
+    }
 
     return {
       content: [{ type: "text", text: summary }],
@@ -3078,14 +3193,22 @@ IMPORTANT: After showing values, provide a brief insight (e.g., "Field has 45 un
     title: "List Master Dimensions",
     description: `List all master dimensions in a Qlik app. Master dimensions are reusable, governed dimension definitions.
 
-IMPORTANT: After showing dimensions, provide a brief summary of what's available.`,
+Use silent=true when gathering context for analysis (no UI shown).`,
     inputSchema: {
       appId: z.string().describe("App ID"),
+      silent: z.boolean().optional().default(false).describe("When true, returns data without UI (for context gathering)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const dimensions = await qlik.getMasterDimensions(args.appId);
-    const summary = `Found ${dimensions.length} master dimensions: ${dimensions.slice(0, 5).map((d: any) => d.title).join(", ")}${dimensions.length > 5 ? "..." : ""}`;
+    const dimList = dimensions.map((d: any) => `- ${d.title}: ${d.definition || d.fieldDefs?.join(", ") || ""}`).join("\n");
+    const summary = `Found ${dimensions.length} master dimensions:\n${dimList}`;
+
+    if (args.silent) {
+      return {
+        content: [{ type: "text", text: summary }],
+      };
+    }
 
     return {
       content: [{ type: "text", text: summary }],
@@ -3102,14 +3225,22 @@ IMPORTANT: After showing dimensions, provide a brief summary of what's available
     title: "List Master Measures",
     description: `List all master measures in a Qlik app. Master measures are reusable, governed calculation definitions.
 
-IMPORTANT: After showing measures, provide a brief summary of what's available.`,
+Use silent=true when gathering context for analysis (no UI shown).`,
     inputSchema: {
       appId: z.string().describe("App ID"),
+      silent: z.boolean().optional().default(false).describe("When true, returns data without UI (for context gathering)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const measures = await qlik.getMasterMeasures(args.appId);
-    const summary = `Found ${measures.length} master measures: ${measures.slice(0, 5).map((m: any) => m.title).join(", ")}${measures.length > 5 ? "..." : ""}`;
+    const measureList = measures.map((m: any) => `- ${m.title}: ${m.expression || ""}`).join("\n");
+    const summary = `Found ${measures.length} master measures:\n${measureList}`;
+
+    if (args.silent) {
+      return {
+        content: [{ type: "text", text: summary }],
+      };
+    }
 
     return {
       content: [{ type: "text", text: summary }],
@@ -3328,16 +3459,30 @@ IMPORTANT: After showing measures, provide a brief summary of what's available.`
 
   registerAppTool(server, "bookmarks", {
     title: "List Bookmarks",
-    description: `List all bookmarks in an app. Bookmarks save selection states for quick recall.`,
+    description: `List all bookmarks in an app. Bookmarks save selection states for quick recall.
+
+Use silent=true when gathering context for analysis (no UI shown).`,
     inputSchema: {
       appId: z.string().describe("App ID"),
+      silent: z.boolean().optional().default(false).describe("When true, returns data without UI (for context gathering)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const bookmarks = await qlik.getBookmarks(args.appId);
+    const bookmarkList = bookmarks.map((b: any) => {
+      const title = b.qData?.title || b.qMeta?.title || "Untitled";
+      const desc = b.qData?.description || b.qMeta?.description || "";
+      return `- ${title}${desc ? `: ${desc}` : ""}`;
+    }).join("\n");
     const summary = bookmarks.length === 0
       ? "No bookmarks in this app"
-      : `Found ${bookmarks.length} bookmarks`;
+      : `Found ${bookmarks.length} bookmarks:\n${bookmarkList}`;
+
+    if (args.silent) {
+      return {
+        content: [{ type: "text", text: summary }],
+      };
+    }
 
     return {
       content: [{ type: "text", text: summary }],
@@ -3379,16 +3524,26 @@ IMPORTANT: After showing measures, provide a brief summary of what's available.`
 
   registerAppTool(server, "variables", {
     title: "List Variables",
-    description: `List all variables in an app. Variables store values and expressions that can be used across the app.`,
+    description: `List all variables in an app. Variables store values and expressions that can be used across the app.
+
+Use silent=true when gathering context for analysis (no UI shown).`,
     inputSchema: {
       appId: z.string().describe("App ID"),
+      silent: z.boolean().optional().default(false).describe("When true, returns data without UI (for context gathering)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const variables = await qlik.getVariables(args.appId);
+    const varList = variables.map((v: any) => `- ${v.qName}: ${v.qDefinition || "(no definition)"}`).join("\n");
     const summary = variables.length === 0
       ? "No variables in this app"
-      : `Found ${variables.length} variables`;
+      : `Found ${variables.length} variables:\n${varList}`;
+
+    if (args.silent) {
+      return {
+        content: [{ type: "text", text: summary }],
+      };
+    }
 
     return {
       content: [{ type: "text", text: summary }],
