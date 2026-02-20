@@ -2529,7 +2529,7 @@ CRITICAL: You MUST use the exact experiment ID from the "experiments" tool resul
     const exp = await qlik.automlGetExperiment(args.experimentId);
     return {
       content: [{ type: "text", text: `Experiment: ${exp.name}` }],
-      structuredContent: { type: "experiment-detail", ...exp },
+      structuredContent: { type: "experiment-detail", ...exp, tenantUrl: TENANT_URL },
     };
   });
 
@@ -2570,7 +2570,7 @@ CRITICAL: You MUST use the exact deployment ID from the "deployments" tool resul
     const deployment = await qlik.automlGetDeployment(args.deploymentId);
     return {
       content: [{ type: "text", text: `Deployment: ${deployment.name}` }],
-      structuredContent: { type: "deployment-detail", ...deployment },
+      structuredContent: { type: "deployment-detail", ...deployment, tenantUrl: TENANT_URL },
     };
   });
 

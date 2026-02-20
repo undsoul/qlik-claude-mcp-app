@@ -444,9 +444,9 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "insights": <InsightsView data={data} />,
     "chart": <ChartView data={data} />,
     "experiments": <ExperimentsGrid data={data} callTool={callTool} />,
-    "experiment-detail": <ExperimentDetail data={data} />,
+    "experiment-detail": <ExperimentDetail data={data} openLink={openLink} />,
     "deployments": <DeploymentsGrid data={data} />,
-    "deployment-detail": <DeploymentDetail data={data} />,
+    "deployment-detail": <DeploymentDetail data={data} openLink={openLink} />,
     "lineage": <LineageView data={data} sendAction={sendAction} />,
     "app-lineage": <AppLineageView data={data} />,
     "datasets": <DatasetsGrid data={data} callTool={callTool} sendAction={sendAction} />,
@@ -2183,10 +2183,12 @@ function ExperimentsGrid({ data, callTool }: { data: any; callTool: any }) {
   );
 }
 
-function ExperimentDetail({ data }: { data: any }) {
+function ExperimentDetail({ data, openLink }: { data: any; openLink?: (url: string) => void }) {
   // Handle nested data structure from API: data.data.attributes
   const attrs = data.data?.attributes || data.attributes || data;
+  const id = data.data?.id || data.id;
   const name = attrs.name || data.name || "Experiment";
+  const experimentUrl = data.tenantUrl && id ? `${data.tenantUrl}/automl/experiments/${id}` : null;
 
   return (
     <div className="results-panel">
@@ -2195,7 +2197,14 @@ function ExperimentDetail({ data }: { data: any }) {
           <Zap size={16} />
           {name}
         </span>
-        {attrs.status && <span className="results-badge green">{attrs.status}</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {attrs.status && <span className="results-badge green">{attrs.status}</span>}
+          {experimentUrl && openLink && (
+            <button className="small-btn" onClick={() => openLink(experimentUrl)}>
+              <ExternalLink size={12} /> Open
+            </button>
+          )}
+        </div>
       </div>
       <div className="detail-info-rows">
         {(attrs.targetFeature || attrs.target) && (
@@ -2235,10 +2244,12 @@ function ExperimentDetail({ data }: { data: any }) {
   );
 }
 
-function DeploymentDetail({ data }: { data: any }) {
+function DeploymentDetail({ data, openLink }: { data: any; openLink?: (url: string) => void }) {
   // Handle nested data structure from API
   const attrs = data.data?.attributes || data.attributes || data;
+  const id = data.data?.id || data.id;
   const name = attrs.name || data.name || "Deployment";
+  const deploymentUrl = data.tenantUrl && id ? `${data.tenantUrl}/automl/deployments/${id}` : null;
 
   return (
     <div className="results-panel">
@@ -2247,10 +2258,15 @@ function DeploymentDetail({ data }: { data: any }) {
           <Play size={16} />
           {name}
         </span>
-        <div className="results-badges">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {attrs.enablePredictions && <span className="results-badge green">Active</span>}
           {attrs.deprecated && <span className="results-badge error">Deprecated</span>}
           {!attrs.enablePredictions && !attrs.deprecated && <span className="results-badge">Inactive</span>}
+          {deploymentUrl && openLink && (
+            <button className="small-btn" onClick={() => openLink(deploymentUrl)}>
+              <ExternalLink size={12} /> Open
+            </button>
+          )}
         </div>
       </div>
       <div className="detail-info-rows">
