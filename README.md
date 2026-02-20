@@ -155,52 +155,156 @@ Complete styling system with:
 
 ## Installation
 
-### Prerequisites
+### Step 1: Install Node.js
 
-- Node.js 18+
-- Bun (for building)
-- Claude Desktop
-- Qlik Cloud tenant with API key
-
-### Setup
-
-1. Clone the repository:
+**macOS (with Homebrew):**
 ```bash
+brew install node
+```
+
+**macOS (without Homebrew):**
+```bash
+# First install Homebrew
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install node
+```
+
+**Windows:**
+1. Download from https://nodejs.org (LTS version, 18+)
+2. Run installer
+
+**Verify:**
+```bash
+node --version   # Should be v18 or higher
+```
+
+### Step 2: Install Bun
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+**Windows (PowerShell as Admin):**
+```powershell
+powershell -c "irm bun.sh/install.ps1 | iex"
+```
+
+**Important:** After installation, add Bun to your PATH:
+```bash
+# Run these commands (or close and reopen terminal)
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+```
+
+**Verify:**
+```bash
+bun --version
+```
+
+### Step 3: Install Claude Desktop
+
+1. Download from https://claude.ai/download
+2. Install and sign in with your account
+
+### Step 4: Create Qlik Cloud API Key
+
+1. Log in to your Qlik Cloud tenant (e.g., `https://your-tenant.eu.qlikcloud.com`)
+2. Click your **profile icon** (top right)
+3. Select **Settings**
+4. Click **API keys** in the left menu
+5. Click **Generate new key**
+6. **Copy the key immediately** (it's only shown once!)
+
+### Step 5: Clone and Build
+
+```bash
+# Clone the repository
 git clone https://github.com/undsoul/qlik-claude-mcp-app.git
+
+# IMPORTANT: Enter the project directory
 cd qlik-claude-mcp-app
-```
 
-2. Install dependencies:
-```bash
+# Install dependencies
 npm install
-```
 
-3. Build:
-```bash
+# Build
 npm run build
 ```
 
-4. Configure Claude Desktop:
+### Step 6: Configure Claude Desktop
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+**macOS:** Open or create `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```bash
+# Create directory if needed
+mkdir -p ~/Library/Application\ Support/Claude
+
+# Edit config file
+nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+**Windows:** Open `%APPDATA%\Claude\claude_desktop_config.json`
+
+**Add this configuration:**
 
 ```json
 {
   "mcpServers": {
     "Qlik Mcp App": {
       "command": "node",
-      "args": ["/path/to/qlik-claude-mcp-app/dist/index.js", "--stdio"],
+      "args": ["/Users/YOUR_USERNAME/qlik-claude-mcp-app/dist/index.js", "--stdio"],
       "env": {
         "QLIK_TENANT_URL": "https://your-tenant.region.qlikcloud.com",
-        "QLIK_API_KEY": "your-api-key"
+        "QLIK_API_KEY": "your-api-key-here"
       }
     }
   }
 }
 ```
 
-5. Restart Claude Desktop
+> **Replace:**
+> - `YOUR_USERNAME` with your actual username
+> - `your-tenant.region` with your Qlik Cloud tenant (e.g., `mycompany.eu`)
+> - `your-api-key-here` with the API key from Step 4
+
+**Find your full path:**
+```bash
+# macOS/Linux
+pwd   # Run this inside the project folder
+
+# Windows (PowerShell)
+Get-Location
+```
+
+### Step 7: Restart Claude Desktop
+
+Completely quit and reopen Claude Desktop.
+
+### Step 8: Test
+
+In Claude Desktop, try:
+```
+Show me my Qlik Cloud apps
+```
+
+or
+
+```
+List spaces in Qlik
+```
+
+---
+
+## Troubleshooting
+
+| Error | Solution |
+|-------|----------|
+| `bun: command not found` | Run: `export BUN_INSTALL="$HOME/.bun"` and `export PATH="$BUN_INSTALL/bin:$PATH"` |
+| `ENOENT: no such file or directory, package.json` | Make sure you ran `cd qlik-claude-mcp-app` after cloning |
+| `Unauthorized` | Check your API key is correct |
+| `Connection refused` | Ensure QLIK_TENANT_URL starts with `https://` |
+| MCP server not found | Verify the path in config matches your actual install location |
 
 ## Usage Examples
 
