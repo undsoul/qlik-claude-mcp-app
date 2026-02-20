@@ -436,7 +436,7 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "automation-runs": <AutomationRuns data={data} />,
     "automation-run": <ActionSuccess title="Automation Started" data={data} />,
     "alerts": <AlertsGrid data={data} callTool={callTool} />,
-    "alert-detail": <AlertDetail data={data} sendAction={sendAction} />,
+    "alert-detail": <AlertDetail data={data} sendAction={sendAction} openLink={openLink} />,
     "alert-triggered": <ActionSuccess title="Alert Triggered" data={data} />,
     "assistants": <AssistantsGrid data={data} callTool={callTool} />,
     "assistant-detail": <AssistantDetail data={data} sendAction={sendAction} />,
@@ -1340,17 +1340,56 @@ function AlertsGrid({ data, callTool }: { data: any; callTool: any }) {
   );
 }
 
-function AlertDetail({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
+function AlertDetail({ data, sendAction, openLink }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void; openLink?: (url: string) => void }) {
+  // Build Qlik Cloud alert URL
+  const alertUrl = data.tenantUrl ? `${data.tenantUrl}/alerts/${data.id}` : null;
+
   return (
-    <Card header={{ label: "Alert", title: data.name, gradient: data.enabled ? "green" : "dark" }}>
+    <div className="results-panel">
+      <div className="results-header">
+        <span className="results-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Bell size={16} />
+          {data.name}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className={`results-badge ${data.enabled ? 'green' : ''}`}>
+            {data.enabled ? 'Enabled' : 'Disabled'}
+          </span>
+          {alertUrl && openLink && (
+            <button className="small-btn" onClick={() => openLink(alertUrl)}>
+              <ExternalLink size={12} /> Open
+            </button>
+          )}
+        </div>
+      </div>
       {data.description && (
         <p className="alert-description">{data.description}</p>
       )}
-      <div className="stats-grid">
-        <Stat label="Status" value={data.enabled ? "Enabled" : "Disabled"} />
-        <Stat label="Last Triggered" value={formatDate(data.lastTriggered)} />
-        {data.triggerCount !== undefined && <Stat label="Trigger Count" value={data.triggerCount} />}
-        {data.condition && <Stat label="Condition" value={data.condition} />}
+      <div className="detail-info-rows">
+        {data.lastTriggered && (
+          <div className="detail-row">
+            <span className="detail-label">Last Triggered</span>
+            <span className="detail-value">{formatDate(data.lastTriggered)}</span>
+          </div>
+        )}
+        {data.triggerCount !== undefined && (
+          <div className="detail-row">
+            <span className="detail-label">Trigger Count</span>
+            <span className="detail-value">{data.triggerCount}</span>
+          </div>
+        )}
+        {data.condition && (
+          <div className="detail-row">
+            <span className="detail-label">Condition</span>
+            <span className="detail-value">{data.condition}</span>
+          </div>
+        )}
+        {data.appId && (
+          <div className="detail-row">
+            <span className="detail-label">App</span>
+            <span className="detail-value mono">{data.appName || data.appId}</span>
+          </div>
+        )}
       </div>
       {data.recipients && data.recipients.length > 0 && (
         <div className="alert-recipients">
@@ -1363,23 +1402,15 @@ function AlertDetail({ data, sendAction }: { data: any; sendAction: (action: str
           </div>
         </div>
       )}
-      {data.appId && (
-        <div className="alert-app">
-          <span className="app-label">App:</span>
-          <span className="app-name">{data.appName || data.appId}</span>
-        </div>
-      )}
-      <div className="action-buttons">
-        {data.enabled && (
-          <button className="btn primary" onClick={() => sendAction("Trigger this alert now", { alertId: data.id, alertName: data.name })}>
-            Trigger Now
-          </button>
-        )}
-        <button className="btn secondary" onClick={() => sendAction("Delete this alert", { alertId: data.id, alertName: data.name })}>
-          Delete Alert
+      <div className="compact-actions">
+        <button className="small-btn primary" onClick={() => sendAction("Trigger this alert now", { alertId: data.id, alertName: data.name })}>
+          <Bell size={12} /> Run
+        </button>
+        <button className="small-btn danger" onClick={() => sendAction("Delete this alert", { alertId: data.id, alertName: data.name })}>
+          Delete
         </button>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -2166,16 +2197,39 @@ function ExperimentDetail({ data }: { data: any }) {
         </span>
         {attrs.status && <span className="results-badge green">{attrs.status}</span>}
       </div>
-      <div className="stats-grid">
-        <Stat label="Target" value={attrs.targetFeature || attrs.target || "-"} />
-        <Stat label="Algorithm" value={attrs.algorithm || "Auto"} />
-        <Stat label="Created" value={formatDate(attrs.createdAt)} />
-        <Stat label="Updated" value={formatDate(attrs.updatedAt)} />
+      <div className="detail-info-rows">
+        {(attrs.targetFeature || attrs.target) && (
+          <div className="detail-row">
+            <span className="detail-label">Target Feature</span>
+            <span className="detail-value">{attrs.targetFeature || attrs.target}</span>
+          </div>
+        )}
+        <div className="detail-row">
+          <span className="detail-label">Algorithm</span>
+          <span className="detail-value">{attrs.algorithm || "Auto"}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Created</span>
+          <span className="detail-value">{formatDate(attrs.createdAt)}</span>
+        </div>
+        {attrs.updatedAt && attrs.updatedAt !== attrs.createdAt && (
+          <div className="detail-row">
+            <span className="detail-label">Updated</span>
+            <span className="detail-value">{formatDate(attrs.updatedAt)}</span>
+          </div>
+        )}
+        {attrs.ownerId && (
+          <div className="detail-row">
+            <span className="detail-label">Owner ID</span>
+            <span className="detail-value mono">{attrs.ownerId}</span>
+          </div>
+        )}
       </div>
       {attrs.description && (
-        <p style={{ padding: '12px 16px', margin: 0, fontSize: '13px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}>
-          {attrs.description}
-        </p>
+        <div className="detail-description">
+          <span className="detail-label">Description</span>
+          <p>{attrs.description}</p>
+        </div>
       )}
     </div>
   );
@@ -2199,15 +2253,51 @@ function DeploymentDetail({ data }: { data: any }) {
           {!attrs.enablePredictions && !attrs.deprecated && <span className="results-badge">Inactive</span>}
         </div>
       </div>
-      <div className="stats-grid">
-        <Stat label="Model ID" value={attrs.modelId?.slice(0, 8) + "..." || "-"} />
-        <Stat label="Created" value={formatDate(attrs.createdAt)} />
-        <Stat label="Updated" value={formatDate(attrs.updatedAt)} />
+      <div className="detail-info-rows">
+        {attrs.modelId && (
+          <div className="detail-row">
+            <span className="detail-label">Model ID</span>
+            <span className="detail-value mono">{attrs.modelId}</span>
+          </div>
+        )}
+        {attrs.experimentId && (
+          <div className="detail-row">
+            <span className="detail-label">Experiment ID</span>
+            <span className="detail-value mono">{attrs.experimentId}</span>
+          </div>
+        )}
+        <div className="detail-row">
+          <span className="detail-label">Predictions</span>
+          <span className="detail-value">
+            {attrs.enablePredictions ? (
+              <span style={{ color: 'var(--green)' }}>Enabled</span>
+            ) : (
+              <span style={{ color: 'var(--text-muted)' }}>Disabled</span>
+            )}
+          </span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">Created</span>
+          <span className="detail-value">{formatDate(attrs.createdAt)}</span>
+        </div>
+        {attrs.updatedAt && attrs.updatedAt !== attrs.createdAt && (
+          <div className="detail-row">
+            <span className="detail-label">Updated</span>
+            <span className="detail-value">{formatDate(attrs.updatedAt)}</span>
+          </div>
+        )}
+        {attrs.ownerId && (
+          <div className="detail-row">
+            <span className="detail-label">Owner ID</span>
+            <span className="detail-value mono">{attrs.ownerId}</span>
+          </div>
+        )}
       </div>
       {attrs.description && (
-        <p style={{ padding: '12px 16px', margin: 0, fontSize: '13px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}>
-          {attrs.description}
-        </p>
+        <div className="detail-description">
+          <span className="detail-label">Description</span>
+          <p>{attrs.description}</p>
+        </div>
       )}
     </div>
   );
@@ -2828,38 +2918,95 @@ function DatasetDetail({ data, sendAction }: { data: any; sendAction: (action: s
 // ============ TENANT & LICENSE ============
 function TenantView({ data }: { data: any }) {
   const counts = data.counts || {};
+  const capacities = data.capacities || {};
 
   return (
     <div className="results-panel">
       <div className="results-header">
         <span className="results-count">{data.name}</span>
         <div className="results-badges">
-          <span className={`results-badge ${data.status}`}>{data.status}</span>
-          <span className="results-badge">{data.datacenter}</span>
+          <span className={`results-badge ${data.status === 'active' ? 'green' : ''}`}>{data.status}</span>
+          <span className="results-badge">{data.region || data.datacenter}</span>
         </div>
       </div>
-      <div className="results-stats">
-        <div className="results-stat">
-          <span className="stat-value">{counts.apps || 0}</span>
-          <span className="stat-label">Apps</span>
+
+      {/* License Info */}
+      <div className="tenant-license-section">
+        <div className="license-main">
+          <div className="license-product">
+            <span className="product-name">{data.product || 'Qlik Cloud'}</span>
+            {data.edition && <span className="product-edition">{data.edition}</span>}
+            {data.trial && <span className="trial-badge">Trial</span>}
+          </div>
+          {data.licenseNumber && (
+            <div className="license-number">{data.licenseNumber}</div>
+          )}
         </div>
-        <div className="results-stat">
-          <span className="stat-value">{counts.spaces || 0}</span>
-          <span className="stat-label">Spaces</span>
-        </div>
-        <div className="results-stat">
-          <span className="stat-value">{data.usersUsed || counts.users || 0}</span>
-          <span className="stat-label">Users</span>
-        </div>
-        <div className="results-stat">
-          <span className="stat-value">{counts.automations || 0}</span>
-          <span className="stat-label">Automations</span>
+        {data.licenseValid && (
+          <div className="license-validity">
+            <span className="validity-label">Valid</span>
+            <span className="validity-dates">{data.licenseValid}</span>
+            {data.licenseStatus && (
+              <span className={`results-badge sm ${data.licenseStatus === 'Ok' ? 'green' : 'warning'}`}>
+                {data.licenseStatus}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Usage Stats */}
+      <div className="tenant-usage">
+        <div className="usage-title">Usage</div>
+        <div className="usage-grid">
+          <div className="usage-item">
+            <div className="usage-value">{counts.apps || 0}</div>
+            <div className="usage-label">Apps</div>
+          </div>
+          <div className="usage-item">
+            <div className="usage-value">{counts.spaces || 0}</div>
+            <div className="usage-label">Spaces</div>
+          </div>
+          <div className="usage-item">
+            <div className="usage-value">
+              {data.usersUsed || counts.users || 0}
+              {capacities.users && capacities.users !== 'Unlimited' && (
+                <span className="usage-cap"> / {capacities.users}</span>
+              )}
+            </div>
+            <div className="usage-label">Users</div>
+          </div>
+          <div className="usage-item">
+            <div className="usage-value">{counts.automations || 0}</div>
+            <div className="usage-label">Automations</div>
+          </div>
         </div>
       </div>
-      {data.licenseNumber && (
-        <div className="results-footer">
-          <span className="results-mono">{data.licenseNumber}</span>
-          <span className={`results-badge sm ${data.licenseStatus?.toLowerCase()}`}>{data.licenseStatus}</span>
+
+      {/* Capacities */}
+      {(capacities.dataCapacityGB || capacities.concurrentReloads || capacities.mlModels) && (
+        <div className="tenant-capacities">
+          <div className="usage-title">Capacities</div>
+          <div className="capacity-items">
+            {capacities.dataCapacityGB && (
+              <div className="capacity-item">
+                <span className="capacity-value">{capacities.dataCapacityGB} GB</span>
+                <span className="capacity-label">Data</span>
+              </div>
+            )}
+            {capacities.concurrentReloads && (
+              <div className="capacity-item">
+                <span className="capacity-value">{capacities.concurrentReloads}</span>
+                <span className="capacity-label">Concurrent Reloads</span>
+              </div>
+            )}
+            {capacities.mlModels && (
+              <div className="capacity-item">
+                <span className="capacity-value">{capacities.mlModels}</span>
+                <span className="capacity-label">ML Models</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -2869,42 +3016,95 @@ function TenantView({ data }: { data: any }) {
 function LicenseView({ data }: { data: any }) {
   const allotments = data.allotments || [];
   const features = data.features || [];
-  const usersAllotment = allotments.find((a: any) => a.displayName?.toLowerCase().includes("user"));
+  const [showAllFeatures, setShowAllFeatures] = useState(false);
+
+  // Format bytes to human readable
+  const formatBytes = (bytes: number) => {
+    if (bytes >= 1099511627776) return (bytes / 1099511627776).toFixed(0) + " TB";
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(0) + " GB";
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + " MB";
+    return bytes + " B";
+  };
+
+  // Format allotment value based on unit
+  const formatAllotment = (a: any) => {
+    if (a.unit === "byte") return formatBytes(a.value);
+    if (a.unit === "GB") return a.value + " GB";
+    if (a.value === -1 || a.total === "Unlimited") return "Unlimited";
+    return a.value?.toLocaleString() || "-";
+  };
+
+  // Filter visible allotments and categorize
+  const visibleAllotments = allotments.filter((a: any) => a.visible !== false && a.title);
+  const usersAllotment = allotments.find((a: any) => a.displayName?.toLowerCase().includes("user") || a.name?.includes("user"));
 
   return (
     <div className="results-panel">
       <div className="results-header">
         <span className="results-count">{data.product || "Qlik Cloud"}</span>
-        <span className={`results-badge ${data.status?.toLowerCase()}`}>{data.status}</span>
+        <span className={`results-badge ${data.status === 'Ok' ? 'green' : 'warning'}`}>{data.status}</span>
       </div>
-      <div className="results-stats">
-        <div className="results-stat">
-          <span className="stat-label">License</span>
-          <span className="stat-value mono">{data.licenseNumber}</span>
+
+      {/* License Info */}
+      <div className="license-info-grid">
+        <div className="license-info-item">
+          <span className="license-info-label">License Number</span>
+          <span className="license-info-value mono">{data.licenseNumber}</span>
         </div>
-        <div className="results-stat">
-          <span className="stat-label">Valid Until</span>
-          <span className="stat-value">{data.valid || "-"}</span>
+        <div className="license-info-item">
+          <span className="license-info-label">Valid Period</span>
+          <span className="license-info-value">{data.valid || "-"}</span>
         </div>
-        {data.daysRemaining !== null && (
-          <div className="results-stat">
-            <span className="stat-label">Remaining</span>
-            <span className={`stat-value ${data.daysRemaining < 30 ? "warning" : ""}`}>{data.daysRemaining} days</span>
+        {data.daysRemaining !== undefined && data.daysRemaining !== null && (
+          <div className="license-info-item">
+            <span className="license-info-label">Days Remaining</span>
+            <span className={`license-info-value ${data.daysRemaining < 30 ? 'warning-text' : data.daysRemaining > 180 ? 'success-text' : ''}`}>
+              {data.daysRemaining} days
+            </span>
           </div>
         )}
         {usersAllotment && (
-          <div className="results-stat">
-            <span className="stat-label">Users</span>
-            <span className="stat-value">{usersAllotment.used} / {usersAllotment.total}</span>
-          </div>
-        )}
-        {features.length > 0 && (
-          <div className="results-stat">
-            <span className="stat-label">Features</span>
-            <span className="stat-value">{features.length} enabled</span>
+          <div className="license-info-item">
+            <span className="license-info-label">Users</span>
+            <span className="license-info-value">{usersAllotment.used || 0} / {usersAllotment.total || 'Unlimited'}</span>
           </div>
         )}
       </div>
+
+      {/* Allotments / Capacities */}
+      {visibleAllotments.length > 0 && (
+        <div className="license-allotments">
+          <div className="allotments-title">Capacities & Limits</div>
+          <div className="allotments-grid">
+            {visibleAllotments.slice(0, 8).map((a: any, i: number) => (
+              <div key={i} className="allotment-item">
+                <div className="allotment-value">{formatAllotment(a)}</div>
+                <div className="allotment-name">{a.title || a.displayName || a.name}</div>
+                {a.periodType && a.periodType !== 'fixed' && (
+                  <div className="allotment-period">per {a.periodType}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Features */}
+      {features.length > 0 && (
+        <div className="license-features">
+          <div className="features-header" onClick={() => setShowAllFeatures(!showAllFeatures)}>
+            <span className="features-title">Enabled Features ({features.length})</span>
+            <span className="features-toggle">{showAllFeatures ? '▲' : '▼'}</span>
+          </div>
+          {showAllFeatures && (
+            <div className="features-list">
+              {features.map((f: string, i: number) => (
+                <span key={i} className="feature-tag">{f}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
