@@ -4,12 +4,12 @@ A full-featured Model Context Protocol (MCP) server that connects Claude Desktop
 
 ## Features
 
-### 58 MCP Tools with Rich UI
+### 59 MCP Tools with Rich UI
 
 | Category | Tools | Description |
 |----------|-------|-------------|
 | **Search & Discovery** | `search` | Search all items in Qlik Cloud with filters |
-| **Apps** | `app_details`, `generate_app` | View app details, generate apps from natural language |
+| **Apps** | `app_details`, `app_context`, `generate_app` | View app details, get full context, generate apps |
 | **Spaces** | `spaces`, `space_details` | List and explore spaces with their contents |
 | **Users** | `users`, `user` | List and view user information |
 | **Tenant** | `tenant`, `health`, `license` | Tenant info, system health, license details |
@@ -77,6 +77,52 @@ Full Qlik Engine API support via WebSocket (Enigma.js):
 - **Script**: Full load script with tab parsing
 - **Sheets**: List sheets and their objects
 - **Master Items**: Dimensions and measures with formulas
+
+### Silent Mode & Context Gathering
+
+For complex tasks like report generation, Claude needs to gather app metadata without flooding the UI with panels. Two features solve this:
+
+**1. Silent Mode Parameter**
+
+Metadata tools support `silent=true` to return data without showing UI:
+
+```
+fields(appId, silent=true)           # Data model - no UI
+list_sheets(appId, silent=true)      # Sheets - no UI
+master_dimensions(appId, silent=true) # Dimensions - no UI
+master_measures(appId, silent=true)   # Measures - no UI
+bookmarks(appId, silent=true)         # Bookmarks - no UI
+variables(appId, silent=true)         # Variables - no UI
+```
+
+**2. app_context Tool**
+
+Fetches ALL app metadata in one call (no UI):
+
+```
+app_context(appId) → Returns:
+  - App info
+  - Data model (tables & fields)
+  - Sheets
+  - Master dimensions
+  - Master measures
+  - Bookmarks
+  - Variables
+```
+
+**Example Workflow:**
+
+```
+User: "Create an executive report for the Sales app"
+
+# Without silent mode (bad UX):
+Claude calls: fields → UI, sheets → UI, master_dims → UI, insight → UI
+Result: 4 UI panels flooding the screen 😵
+
+# With app_context (good UX):
+Claude calls: app_context → no UI, insight → final UI
+Result: 1 clean visualization 🎉
+```
 
 ## Architecture
 
