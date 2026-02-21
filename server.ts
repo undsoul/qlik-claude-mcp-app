@@ -1651,11 +1651,17 @@ export function createServer(): McpServer {
 
 Supported resource types: app, qvapp, dataset, automation, note, genericlink, collection, space
 
-CRITICAL: Each result has a unique "id" field (UUID format like "83433f72-1ea0-40d0-939d-3a56eaa4d118"). When calling detail tools (app_details, space_details, etc.), you MUST use the EXACT id from these results. Do NOT invent or guess IDs.
+CRITICAL WORKFLOW:
+1. Show results to user (UI handles display)
+2. If MULTIPLE results found → IMMEDIATELY ask "Which one do you want to use?"
+3. Do NOT try additional searches to "narrow down" - just ASK the user
+4. Do NOT proceed with app_context, app_details, or other tools until user selects one
+5. Wait for user's choice, then use the exact ID from their selection
 
-If multiple results found, ask user which one they want before calling detail tools.
+WRONG: Search → Multiple results → Search again with different query → Search again → Finally ask
+RIGHT: Search → Multiple results → Immediately ask "Which app?" → User picks → Proceed
 
-IMPORTANT: After showing results, provide a brief summary of what was found (e.g., "3 apps and 2 datasets found, most recent updated today").`,
+Each result has a unique "id" field (UUID). Use the EXACT id from results for detail tools.`,
     inputSchema: {
       query: z.string().optional().describe("Search text - matches name, description, and tags"),
       types: z.array(z.string()).optional().default(["all"]).describe("Resource types: app, qvapp, dataset, automation, note, space, all"),
