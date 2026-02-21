@@ -135,21 +135,22 @@ function QlikApp() {
   const callTool = useCallback(async (toolName: string, args: any = {}, selection?: { name: string; id: string; type: string }) => {
     if (!appInstance) return;
     try {
-      // If selection provided, notify Claude with full context (name, id, type)
-      if (selection) {
-        await appInstance.sendMessage({
-          role: "user",
-          content: [{ type: "text", text: `I selected "${selection.name}" (${selection.type} ID: ${selection.id}). Please show me the details.` }]
-        });
-        return;
-      }
-      // Otherwise call the tool directly with loading indicator
       setLoading(true);
+
+      // Call the tool directly
       const result = await appInstance.callServerTool({ name: toolName, arguments: args });
-      // Handle the result directly since ontoolresult may not fire for callServerTool
       setLoading(false);
+
       if (result) {
         setToolResult(result as any);
+
+        // If selection provided, also send context to Claude for follow-up
+        if (selection) {
+          await appInstance.sendMessage({
+            role: "user",
+            content: [{ type: "text", text: `I selected "${selection.name}" (${selection.type} ID: ${selection.id}). The details are shown above.` }]
+          });
+        }
       }
     } catch (e) {
       console.error("callTool error:", e);
