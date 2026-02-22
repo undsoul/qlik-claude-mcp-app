@@ -1,0 +1,26 @@
+{
+  "servers": {
+    "qlikCloud": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js", "--stdio"],
+      "env": {
+        "QLIK_TENANT_URL": "${input:qlikTenantUrl}",
+        "QLIK_API_KEY": "${input:qlikApiKey}"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "qlikTenantUrl",
+      "description": "Qlik Cloud Tenant URL (e.g., https://your-tenant.eu.qlikcloud.com)"
+    },
+    {
+      "type": "promptString",
+      "id": "qlikApiKey",
+      "description": "Qlik Cloud API Key",
+      "password": true
+    }
+  ]
+}

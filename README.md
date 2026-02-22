@@ -342,6 +342,76 @@ List spaces in Qlik
 
 ---
 
+## Multi-Platform Support
+
+This MCP server works with multiple AI assistants beyond Claude Desktop.
+
+### VS Code / GitHub Copilot
+
+The project includes `.vscode/mcp.json` for VS Code and GitHub Copilot integration.
+
+1. Open the project in VS Code
+2. VS Code will detect the MCP configuration automatically
+3. You'll be prompted to enter your Qlik Cloud credentials
+
+**Manual setup:**
+```json
+// .vscode/mcp.json (already included)
+{
+  "servers": {
+    "qlikCloud": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js", "--stdio"],
+      "env": {
+        "QLIK_TENANT_URL": "${input:qlikTenantUrl}",
+        "QLIK_API_KEY": "${input:qlikApiKey}"
+      }
+    }
+  }
+}
+```
+
+### ChatGPT Desktop
+
+ChatGPT Desktop requires HTTP transport with a public URL.
+
+**Step 1: Start the HTTP server**
+```bash
+cd qlik-claude-mcp-app
+export QLIK_TENANT_URL="https://your-tenant.region.qlikcloud.com"
+export QLIK_API_KEY="your-api-key"
+npm run serve
+# Server runs at http://localhost:3001/mcp
+```
+
+**Step 2: Expose with Cloudflare Tunnel**
+```bash
+# Install cloudflared
+brew install cloudflared   # macOS
+# Or download from https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation
+
+# Create tunnel (no account needed)
+cloudflared tunnel --url http://localhost:3001
+# Returns URL like: https://random-words.trycloudflare.com
+```
+
+**Step 3: Configure ChatGPT Desktop**
+
+Use the config file at `chatgpt-mcp-config.json`:
+```json
+{
+  "name": "Qlik Cloud",
+  "description": "Connect to Qlik Cloud for analytics, apps, and insights",
+  "url": "https://your-tunnel-url.trycloudflare.com/mcp",
+  "transport": "http"
+}
+```
+
+> **Note:** Replace `your-tunnel-url` with the actual URL from cloudflared.
+
+---
+
 ## Troubleshooting
 
 | Error | Solution |

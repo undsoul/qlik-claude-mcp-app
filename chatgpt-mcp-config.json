@@ -1,0 +1,7 @@
+{
+  "name": "Qlik Cloud",
+  "description": "Connect to Qlik Cloud for analytics, apps, and insights",
+  "url": "http://localhost:3001/mcp",
+  "transport": "http",
+  "note": "Run 'npm run serve' first, then expose via cloudflared tunnel for ChatGPT Desktop"
+}
