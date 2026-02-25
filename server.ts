@@ -1452,21 +1452,35 @@ class QlikClient {
 
   async getDataProduct(productId: string): Promise<any> {
     // Use data-governance API for full details
-    const product = await this.fetch(`/data-governance/data-products/${productId}`);
-
-    // Also fetch changelog for modification history
-    let changelog: any[] = [];
     try {
-      const changelogResult = await this.fetch(`/data-governance/data-products/${productId}/changelogs`);
-      changelog = changelogResult.data || [];
-    } catch {
-      // Changelog might not be available
-    }
+      const product = await this.fetch(`/data-governance/data-products/${productId}`);
 
-    return {
-      ...product,
-      changelog,
-    };
+      // Also fetch changelog for modification history
+      let changelog: any[] = [];
+      try {
+        const changelogResult = await this.fetch(`/data-governance/data-products/${productId}/changelogs`);
+        changelog = changelogResult.data || [];
+      } catch {
+        // Changelog might not be available
+      }
+
+      return {
+        ...product,
+        changelog,
+      };
+    } catch (error: any) {
+      // If detail API fails (404), try to get basic info from list
+      console.error(`[DataProduct] Detail API failed for ${productId}, trying list fallback...`);
+      const products = await this.getDataProducts();
+      const product = products.find((p: any) => p.id === productId);
+      if (product) {
+        return {
+          ...product,
+          _note: "Limited data - detail API unavailable for this product",
+        };
+      }
+      throw error;
+    }
   }
 
   // ==================== DATASET ENHANCEMENTS ====================
