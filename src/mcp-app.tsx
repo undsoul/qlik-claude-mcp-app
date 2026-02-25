@@ -4184,13 +4184,8 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
 function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?: (name: string, args?: any) => void; openLink?: (url: string) => void }) {
   const [creating, setCreating] = useState(false);
   const trustScore = data.trustScore?.score;
-  const trustDimensions = data.trustScore?.dimensions || [];
-  const quality = data.quality || {};
-  const keyContacts = data.keyContacts || [];
   const datasetIds = data.datasetIds || [];
-  const glossaryIds = data.glossaryIds || [];
-  const tags = data.tags || [];
-  const changelog = data.changelog || [];
+  const datasets = data.datasets || [];
 
   const handleCreateApp = async () => {
     if (!callTool) return;
@@ -4205,387 +4200,258 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
 
   return (
     <Card header={{ label: "Data Product", title: data.name || "Product Details", gradient: "purple" }}>
-      <div className="data-product-detail">
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <button
-            className="action-btn primary"
-            onClick={handleCreateApp}
-            disabled={creating || !callTool}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '10px 20px',
-              background: creating ? '#888' : 'linear-gradient(135deg, #4CAF50, #45a049)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: creating ? 'wait' : 'pointer',
-              boxShadow: '0 2px 6px rgba(76, 175, 80, 0.3)',
-            }}
-          >
-            {creating ? <Loader2 size={16} className="spinning" /> : <Plus size={16} />}
-            {creating ? 'Creating...' : 'Create Application'}
-          </button>
-          {openLink && data.tenantUrl && (
-            <button
-              onClick={() => openLink(`${data.tenantUrl}/catalog?type=dataproduct&spaceId=${data.spaceId || ''}`)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '10px 20px',
-                background: 'var(--bg-secondary)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              <ExternalLink size={16} />
-              Open in Qlik Cloud
-            </button>
-          )}
-        </div>
-
-        {/* Status badges */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-          {data.activated && <span className="results-badge green">Activated</span>}
-          {!data.activated && <span className="results-badge">Draft</span>}
-          {data.qri && <span className="results-badge" style={{ fontFamily: 'monospace', fontSize: '10px' }}>{data.qri}</span>}
-        </div>
-
-        {/* Description */}
-        {data.description && <p className="product-description" style={{ marginBottom: '16px' }}>{data.description}</p>}
-
-        {/* Trust Score */}
-        {trustScore !== undefined && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Qlik Trust Score
+      <div style={{ display: 'flex', gap: '20px' }}>
+        {/* LEFT COLUMN - Main content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Description Section */}
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              Description
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '12px 16px',
-                background: 'var(--bg-secondary)',
-                borderRadius: '12px'
-              }}>
-                <div style={{
-                  fontSize: '28px',
-                  fontWeight: 700,
-                  color: trustScore >= 80 ? 'var(--accent-green)' : trustScore >= 50 ? 'orange' : 'red'
-                }}>
-                  {(trustScore / 20).toFixed(1)}/5
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  ({trustScore.toFixed(1)}%)
-                </div>
-              </div>
-              {trustDimensions.length > 0 && (
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {trustDimensions.filter((d: any) => d.score !== undefined).map((dim: any, idx: number) => (
-                    <span key={idx} style={{
-                      fontSize: '10px',
-                      padding: '4px 8px',
-                      background: 'var(--bg-secondary)',
-                      borderRadius: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}>
-                      <span style={{ textTransform: 'capitalize' }}>{dim.id?.toLowerCase()}</span>
-                      <span style={{
-                        fontWeight: 600,
-                        color: dim.score >= 80 ? 'var(--accent-green)' : dim.score >= 50 ? 'orange' : 'var(--text-secondary)'
-                      }}>
-                        {dim.score?.toFixed(0)}%
-                      </span>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+            <p style={{ fontSize: '13px', lineHeight: 1.5, margin: 0 }}>
+              {data.description || 'No description available'}
+            </p>
           </div>
-        )}
 
-        {/* Quality Metrics */}
-        {(quality.validity !== undefined || quality.completeness !== undefined) && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Quality Metrics
+          {/* Datasets Table */}
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
+              Datasets ({datasets.length || datasetIds.length})
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
-              {quality.validity !== undefined && (
-                <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: quality.validity >= 80 ? 'var(--accent-green)' : 'orange' }}>
-                    {quality.validity.toFixed(0)}%
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Validity</div>
-                </div>
-              )}
-              {quality.completeness !== undefined && (
-                <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: quality.completeness >= 80 ? 'var(--accent-green)' : 'orange' }}>
-                    {quality.completeness.toFixed(0)}%
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Completeness</div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Key Contacts */}
-        {keyContacts.length > 0 && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Key Contacts
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {keyContacts.map((contact: any, idx: number) => (
-                <span key={idx} style={{
-                  fontSize: '11px',
-                  padding: '4px 8px',
-                  background: 'var(--bg-secondary)',
-                  borderRadius: '4px'
-                }}>
-                  {contact.role}: {contact.userId}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Datasets Table */}
-        {data.datasets?.length > 0 && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Datasets ({data.datasets.length})
-            </div>
-            <div style={{
-              border: '1px solid var(--border-color)',
-              borderRadius: '8px',
-              overflow: 'hidden'
-            }}>
-              {/* Header */}
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+              {/* Table Header */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: '2fr 1.2fr 1fr 1fr',
+                gridTemplateColumns: '2fr 1fr 1.2fr 1fr 1fr',
                 gap: '8px',
-                padding: '8px 12px',
+                padding: '10px 12px',
                 background: 'var(--bg-secondary)',
-                fontSize: '10px',
+                fontSize: '11px',
                 fontWeight: 600,
-                color: 'var(--text-secondary)',
-                textTransform: 'uppercase'
+                color: 'var(--text-secondary)'
               }}>
                 <span>Name</span>
+                <span>Qlik Trust Score</span>
                 <span>Quality</span>
                 <span>Freshness</span>
                 <span>Space</span>
               </div>
-              {/* Rows */}
-              {data.datasets.map((ds: any, idx: number) => {
-                // Calculate relative time for freshness
+              {/* Table Rows */}
+              {datasets.map((ds: any, idx: number) => {
                 const lastLoad = ds.lastLoadTime ? new Date(ds.lastLoadTime) : null;
                 const now = new Date();
                 let freshness = '-';
                 if (lastLoad) {
                   const diffMs = now.getTime() - lastLoad.getTime();
-                  const diffMins = Math.floor(diffMs / 60000);
                   const diffHours = Math.floor(diffMs / 3600000);
                   const diffDays = Math.floor(diffMs / 86400000);
-                  if (diffMins < 60) freshness = `${diffMins} min ago`;
+                  if (diffHours < 1) freshness = 'Just now';
                   else if (diffHours < 24) freshness = `${diffHours} hours ago`;
-                  else if (diffDays < 30) freshness = `${diffDays} days ago`;
-                  else if (diffDays < 365) freshness = `${Math.floor(diffDays / 30)} months ago`;
+                  else if (diffDays < 365) freshness = `${diffDays === 1 ? '1 day' : diffDays + ' days'} ago`;
                   else freshness = `${Math.floor(diffDays / 365)} year ago`;
                 }
-                const qualityPct = ds.quality?.validity ?? ds.quality?.completeness;
+                const trustVal = ds.trustScore?.score;
+                const qualityPct = ds.quality?.validity ?? ds.quality?.completeness ?? 0;
+
                 return (
                   <div key={idx} style={{
                     display: 'grid',
-                    gridTemplateColumns: '2fr 1.2fr 1fr 1fr',
+                    gridTemplateColumns: '2fr 1fr 1.2fr 1fr 1fr',
                     gap: '8px',
                     padding: '10px 12px',
                     borderTop: '1px solid var(--border-color)',
                     fontSize: '12px',
                     alignItems: 'center'
                   }}>
-                    <span style={{ fontWeight: 500 }}>{ds.name || ds.id?.slice(0, 12) + '...'}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <FileText size={16} style={{ color: 'var(--text-secondary)' }} />
+                      <span style={{ fontWeight: 500 }}>{ds.name || 'Dataset'}</span>
+                    </div>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {trustVal ? `${(trustVal / 20).toFixed(1)}/5` : '-'}
+                    </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div style={{
-                        width: '50px',
-                        height: '8px',
-                        background: 'var(--border-color)',
-                        borderRadius: '4px',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          width: `${qualityPct || 0}%`,
-                          height: '100%',
-                          background: (qualityPct || 0) >= 80 ? 'var(--accent-green)' : (qualityPct || 0) >= 50 ? 'orange' : 'red'
-                        }} />
+                      <div style={{ display: 'flex', gap: '2px' }}>
+                        {[...Array(5)].map((_, i) => (
+                          <div key={i} style={{
+                            width: '12px',
+                            height: '10px',
+                            background: i < Math.floor(qualityPct / 20) ? '#4CAF50' : 'var(--border-color)',
+                            borderRadius: '2px'
+                          }} />
+                        ))}
                       </div>
-                      <span style={{
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        color: (qualityPct || 0) >= 80 ? 'var(--accent-green)' : 'var(--text-secondary)'
-                      }}>
-                        {qualityPct !== undefined ? `${qualityPct.toFixed(0)}%` : '-'}
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{freshness}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <FolderOpen size={12} style={{ color: '#5b8def' }} />
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {ds.spaceName || '-'}
                       </span>
                     </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      {freshness}
-                    </span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      {ds.spaceName || '-'}
-                    </span>
                   </div>
                 );
               })}
-            </div>
-          </div>
-        )}
-        {/* Fallback: Show dataset IDs if no enriched data */}
-        {!data.datasets?.length && datasetIds.length > 0 && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Datasets ({datasetIds.length})
-            </div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {datasetIds.slice(0, 5).map((id: string, idx: number) => (
-                <span key={idx} style={{
-                  fontSize: '10px',
-                  padding: '4px 8px',
-                  background: 'var(--bg-secondary)',
-                  borderRadius: '4px',
-                  fontFamily: 'monospace'
-                }}>
-                  {id.length > 20 ? id.slice(0, 20) + '...' : id}
-                </span>
-              ))}
-              {datasetIds.length > 5 && (
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>+{datasetIds.length - 5} more</span>
+              {datasets.length === 0 && datasetIds.length > 0 && (
+                <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {datasetIds.length} datasets (loading details...)
+                </div>
               )}
             </div>
           </div>
-        )}
-
-        {/* Tags */}
-        {tags.length > 0 && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Tags
-            </div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {tags.map((tag: string, idx: number) => (
-                <span key={idx} className="results-badge">{tag}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Activated On Spaces - with resolved names */}
-        {data.activatedSpaces?.length > 0 && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Activated In ({data.activatedSpaces.length} spaces)
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {data.activatedSpaces.map((space: any, idx: number) => (
-                <span key={idx} style={{
-                  fontSize: '11px',
-                  padding: '6px 10px',
-                  background: 'var(--accent-green)',
-                  color: 'white',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}>
-                  <Share2 size={12} />
-                  {space.name || space.id?.slice(0, 12) + '...'}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-        {/* Fallback: Show space IDs if no resolved names */}
-        {!data.activatedSpaces?.length && data.activatedOn?.length > 0 && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Published to Spaces ({data.activatedOn.length})
-            </div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {data.activatedOn.map((spaceId: string, idx: number) => (
-                <span key={idx} style={{
-                  fontSize: '10px',
-                  padding: '4px 8px',
-                  background: 'var(--accent-green)',
-                  color: 'white',
-                  borderRadius: '4px',
-                  fontFamily: 'monospace'
-                }}>
-                  {spaceId.slice(0, 12)}...
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Metadata */}
-        <div className="product-meta-grid" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
-          {(data.ownerName || data.ownerId) && (
-            <div className="meta-item">
-              <strong>Owner:</strong> {data.ownerName || data.ownerId}
-              {data.ownerEmail && <span style={{ fontSize: '10px', color: 'var(--text-secondary)', marginLeft: '4px' }}>({data.ownerEmail})</span>}
-            </div>
-          )}
-          {(data.spaceName || data.spaceId) && (
-            <div className="meta-item">
-              <strong>Space:</strong> {data.spaceName || data.spaceId}
-              {data.spaceType && <span style={{ fontSize: '10px', color: 'var(--text-secondary)', marginLeft: '4px' }}>({data.spaceType})</span>}
-            </div>
-          )}
-          {data.createdAt && <div className="meta-item"><strong>Created:</strong> {new Date(data.createdAt).toLocaleString()}</div>}
-          {data.updatedAt && <div className="meta-item"><strong>Updated:</strong> {new Date(data.updatedAt).toLocaleString()}</div>}
-          {data.activatedAt && <div className="meta-item"><strong>Last Activated:</strong> {new Date(data.activatedAt).toLocaleString()}</div>}
-          {glossaryIds.length > 0 && <div className="meta-item"><strong>Glossaries:</strong> {glossaryIds.length}</div>}
-          {data.apiConsumableDatasetIds?.length > 0 && <div className="meta-item"><strong>API Endpoints:</strong> {data.apiConsumableDatasetIds.length}</div>}
         </div>
 
-        {/* Changelog */}
-        {changelog.length > 0 && (
-          <div style={{ marginTop: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Recent Changes
+        {/* RIGHT COLUMN - Sidebar */}
+        <div style={{ width: '200px', flexShrink: 0 }}>
+          {/* Create App Button */}
+          <button
+            onClick={handleCreateApp}
+            disabled={creating || !callTool}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '10px 16px',
+              marginBottom: '16px',
+              background: creating ? '#888' : 'linear-gradient(135deg, #4CAF50, #45a049)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: creating ? 'wait' : 'pointer',
+              boxShadow: '0 2px 6px rgba(76, 175, 80, 0.3)',
+            }}
+          >
+            {creating ? <Loader2 size={14} className="spinning" /> : <Plus size={14} />}
+            {creating ? 'Creating...' : 'Create App'}
+          </button>
+
+          {/* API Endpoints */}
+          {data.apiConsumableDatasetIds?.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>API endpoints</div>
+              <div style={{ fontSize: '13px', fontWeight: 500 }}>
+                <Database size={14} style={{ marginRight: '4px' }} />
+                {data.apiConsumableDatasetIds.length}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {changelog.slice(0, 5).map((entry: any, idx: number) => (
-                <div key={idx} style={{
-                  fontSize: '11px',
-                  padding: '8px',
-                  background: 'var(--bg-secondary)',
-                  borderRadius: '4px',
+          )}
+
+          {/* Trust Score */}
+          {trustScore !== undefined && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Qlik Trust Score</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  background: trustScore >= 80 ? '#009845' : trustScore >= 50 ? 'orange' : 'red',
                   display: 'flex',
-                  justifyContent: 'space-between'
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}>
-                  <span>{entry.action || entry.type}</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{entry.timestamp ? new Date(entry.timestamp).toLocaleString() : ''}</span>
+                  <CheckCircle size={20} color="white" />
+                </div>
+                <div>
+                  <span style={{ fontSize: '20px', fontWeight: 700 }}>{(trustScore / 20).toFixed(1)}/5</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                    {trustScore.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Space */}
+          {(data.spaceName || data.spaceId) && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Space</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: '#5b8def', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FolderOpen size={12} color="white" />
+                </div>
+                {data.spaceName || data.spaceId?.slice(0, 12) + '...'}
+              </div>
+            </div>
+          )}
+
+          {/* Activated In */}
+          {(data.activatedSpaces?.length > 0 || data.activatedOn?.length > 0) && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Activated in</div>
+              {(data.activatedSpaces || []).map((space: any, idx: number) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', marginBottom: '4px' }}>
+                  <div style={{ width: '18px', height: '18px', borderRadius: '4px', background: '#e91e63', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Share2 size={10} color="white" />
+                  </div>
+                  {space.name || space.id?.slice(0, 12)}
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+
+          {/* Owner */}
+          {(data.ownerName || data.ownerId) && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Owner</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 600 }}>
+                  {(data.ownerName || 'U').charAt(0).toUpperCase()}
+                </div>
+                {data.ownerName || data.ownerId}
+              </div>
+            </div>
+          )}
+
+          {/* Dates */}
+          {data.activatedAt && (
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Last activated</div>
+              <div style={{ fontSize: '12px' }}>{new Date(data.activatedAt).toLocaleString()}</div>
+            </div>
+          )}
+          {data.updatedAt && (
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Metadata modified</div>
+              <div style={{ fontSize: '12px' }}>{new Date(data.updatedAt).toLocaleString()}</div>
+            </div>
+          )}
+          {data.createdAt && (
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Metadata created</div>
+              <div style={{ fontSize: '12px' }}>{new Date(data.createdAt).toLocaleString()}</div>
+            </div>
+          )}
+
+          {/* Open in Qlik Cloud */}
+          {openLink && data.tenantUrl && (
+            <button
+              onClick={() => openLink(`${data.tenantUrl}/catalog?type=dataproduct`)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                padding: '8px 12px',
+                marginTop: '12px',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                fontSize: '12px',
+                cursor: 'pointer',
+              }}
+            >
+              <ExternalLink size={12} />
+              Open in Qlik Cloud
+            </button>
+          )}
+        </div>
       </div>
     </Card>
   );
