@@ -4120,7 +4120,8 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
       <div className="data-products-list">
         {products.map((product: any) => {
           const isActivated = product.activated;
-          const dataAssetCount = product.dataAssetCount || product.datasetIds?.length || 0;
+          const dataAssetCount = product.dataAssetCount ?? product.datasetIds?.length ?? 0;
+          const isManagedSpace = product.spaceType === 'managed';
 
           return (
             <div
@@ -4139,15 +4140,15 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
                     {dataAssetCount}
                   </span>
 
-                  {/* Space Name */}
+                  {/* Space Name - Blue for shared, Red for managed */}
                   {product.spaceName && (
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '4px',
                       padding: '2px 8px',
-                      background: 'rgba(91, 141, 239, 0.15)',
-                      color: '#5b8def',
+                      background: isManagedSpace ? 'rgba(233, 30, 99, 0.15)' : 'rgba(91, 141, 239, 0.15)',
+                      color: isManagedSpace ? '#e91e63' : '#5b8def',
                       borderRadius: '4px',
                       fontSize: '11px',
                       fontWeight: 500

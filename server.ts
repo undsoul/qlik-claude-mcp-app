@@ -1444,6 +1444,7 @@ class QlikClient {
   async getDataProducts(): Promise<any[]> {
     // Fallback to items API since list endpoint doesn't exist in data-governance API
     const items = await this.search(undefined, ["dataproduct"]);
+    console.error(`[DataProducts] Found ${items.length} items from search`);
 
     // Fetch detailed info from data-governance API for each product
     const enrichedProducts = await Promise.all(
@@ -1452,14 +1453,20 @@ class QlikClient {
         try {
           // Get full details from data-governance API
           const product = await this.fetch(`/data-governance/data-products/${productId}`);
+          console.error(`[DataProducts] Product ${productId}: datasetIds=${(product.datasetIds || []).length}, activated=${product.activated}, spaceId=${product.spaceId}`);
 
-          // Resolve space name
+          // Resolve space name and type
           let spaceName = null;
+          let spaceType = null;
           if (product.spaceId) {
             try {
               const space = await this.fetch(`/spaces/${product.spaceId}`);
               spaceName = space.name;
-            } catch {}
+              spaceType = space.type; // "shared" or "managed"
+              console.error(`[DataProducts] Resolved space: ${spaceName} (${spaceType})`);
+            } catch (e: any) {
+              console.error(`[DataProducts] Failed to resolve space ${product.spaceId}: ${e.message}`);
+            }
           }
 
           return {
@@ -1469,13 +1476,15 @@ class QlikClient {
             description: product.description || item.description,
             spaceId: product.spaceId,
             spaceName,
+            spaceType,
             activated: product.activated || false,
             datasetIds: product.datasetIds || [],
             dataAssetCount: (product.datasetIds || []).length,
             updatedAt: product.updatedAt || item.updatedAt,
             trustScore: product.trustScore,
           };
-        } catch {
+        } catch (e: any) {
+          console.error(`[DataProducts] Failed to fetch product ${productId}: ${e.message}`);
           // Fallback to items data if data-governance API fails
           return {
             id: productId,
@@ -1484,6 +1493,7 @@ class QlikClient {
             description: item.description,
             spaceId: item.spaceId,
             spaceName: null,
+            spaceType: null,
             activated: false,
             datasetIds: [],
             dataAssetCount: 0,
