@@ -1446,8 +1446,16 @@ class QlikClient {
     // The data-governance API only has GET/PATCH/DELETE for individual products by ID
     const items = await this.search(undefined, ["dataproduct"]);
 
+    console.error(`[DataProducts] Found ${items.length} items`);
+    if (items.length > 0) {
+      console.error(`[DataProducts] First item keys:`, Object.keys(items[0]));
+      console.error(`[DataProducts] First item spaceId:`, items[0].spaceId);
+    }
+
     // Get unique space IDs and resolve names
     const spaceIds = [...new Set(items.map((item: any) => item.spaceId).filter(Boolean))] as string[];
+    console.error(`[DataProducts] Unique spaceIds:`, spaceIds);
+
     const spaceMap: Record<string, string> = {};
 
     // Fetch space names in parallel
@@ -1456,11 +1464,14 @@ class QlikClient {
         try {
           const space = await this.fetch(`/spaces/${spaceId}`);
           spaceMap[spaceId] = space.name;
-        } catch {
-          // Space resolution failed
+          console.error(`[DataProducts] Resolved space ${spaceId} -> ${space.name}`);
+        } catch (e: any) {
+          console.error(`[DataProducts] Failed to resolve space ${spaceId}:`, e.message);
         }
       })
     );
+
+    console.error(`[DataProducts] SpaceMap:`, spaceMap);
 
     // Map items to use resourceId as id and include space name
     return items.map((item: any) => ({

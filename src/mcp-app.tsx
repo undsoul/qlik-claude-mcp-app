@@ -464,9 +464,9 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "glossary-detail": <GlossaryDetail data={data} callTool={callTool} />,
     "glossary-term": <GlossaryTermView data={data} />,
     "glossary-term-created": <ActionSuccess title="Term Created" data={data} />,
-    "data-products": <DataProductsGrid data={data} sendAction={sendAction} callTool={callTool} />,
+    "data-products": <DataProductsGrid data={data} sendAction={sendAction} />,
     "data-product-detail": <DataProductDetail data={data} callTool={callTool} openLink={openLink} />,
-    "app-created-from-data-product": <AppCreatedFromDataProduct data={data} openLink={openLink} />,
+    "app-created-from-data-product": <AppCreatedFromDataProduct data={data} openLink={openLink} sendAction={sendAction} />,
     "dataset-profile": <DatasetProfileView data={data} />,
     "bookmarks": <BookmarksView data={data} sendAction={sendAction} />,
     "variables": <VariablesView data={data} sendAction={sendAction} />,
@@ -4112,21 +4112,8 @@ function GlossaryTermView({ data }: { data: any }) {
 }
 
 // ============ DATA PRODUCTS ============
-function DataProductsGrid({ data, sendAction, callTool }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void; callTool?: (name: string, args?: any) => void }) {
+function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const products = data.products || [];
-  const [creatingId, setCreatingId] = useState<string | null>(null);
-
-  const handleCreateApp = (e: React.MouseEvent, product: any) => {
-    e.stopPropagation();
-    if (!callTool) return;
-    setCreatingId(product.id);
-    callTool("create_app_from_data_product", {
-      productId: product.id,
-      productName: product.name,
-      spaceId: product.spaceId,
-      itemId: product.itemId || product.id,
-    });
-  };
 
   return (
     <Card header={{ label: "Data Products", title: `${products.length} Products`, gradient: "purple" }}>
@@ -4138,11 +4125,10 @@ function DataProductsGrid({ data, sendAction, callTool }: { data: any; sendActio
             <div
               key={product.id}
               className="data-product-card"
-              style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}
               onClick={() => sendAction(`Show details for data product "${product.name}"`, { productId: product.id })}
             >
               <div className="data-product-icon">📦</div>
-              <div className="data-product-info" style={{ flex: 1, minWidth: 0, paddingRight: callTool ? '100px' : '0' }}>
+              <div className="data-product-info">
                 <div className="data-product-name">
                   {product.name}
                   {isActivated && <span className="results-badge green" style={{ marginLeft: '8px', fontSize: '10px' }}>Active</span>}
@@ -4172,35 +4158,6 @@ function DataProductsGrid({ data, sendAction, callTool }: { data: any; sendActio
                   {product.updatedAt && <span>Updated: {new Date(product.updatedAt).toLocaleDateString()}</span>}
                 </div>
               </div>
-              {callTool && (
-                <button
-                  onClick={(e) => handleCreateApp(e, product)}
-                  disabled={creatingId === product.id}
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    right: '12px',
-                    transform: 'translateY(-50%)',
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    background: creatingId === product.id ? '#ccc' : 'linear-gradient(135deg, #4CAF50, #45a049)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: creatingId === product.id ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontWeight: 500,
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title="Create App from Data Product"
-                >
-                  <Plus size={14} />
-                  {creatingId === product.id ? 'Creating...' : 'Create App'}
-                </button>
-              )}
             </div>
           );
         })}
@@ -5348,7 +5305,7 @@ function ActionSuccess({ title, data }: { title: string; data: any }) {
   );
 }
 
-function AppCreatedFromDataProduct({ data, openLink }: { data: any; openLink?: (url: string) => void }) {
+function AppCreatedFromDataProduct({ data, openLink, sendAction }: { data: any; openLink?: (url: string) => void; sendAction?: (action: string) => void }) {
   return (
     <Card header={{ label: "App Created", title: data.appName || "New Application", gradient: "green" }}>
       <div style={{ padding: '8px 0' }}>
@@ -5357,7 +5314,7 @@ function AppCreatedFromDataProduct({ data, openLink }: { data: any; openLink?: (
             width: '56px',
             height: '56px',
             borderRadius: '12px',
-            background: 'var(--accent-green)',
+            background: 'linear-gradient(135deg, #4CAF50, #45a049)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center'
@@ -5379,31 +5336,57 @@ function AppCreatedFromDataProduct({ data, openLink }: { data: any; openLink?: (
           </div>
         </div>
 
-        {openLink && data.dataManagerUrl && (
-          <button
-            onClick={() => openLink(data.dataManagerUrl)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              padding: '14px 20px',
-              background: 'linear-gradient(135deg, #009845, #00b050)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '10px',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(0, 152, 69, 0.3)',
-            }}
-          >
-            <Database size={18} />
-            Open Data Manager
-            <ExternalLink size={14} />
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+          {openLink && data.dataManagerUrl && (
+            <button
+              onClick={() => openLink(data.dataManagerUrl)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '14px 20px',
+                background: 'linear-gradient(135deg, #009845, #00b050)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(0, 152, 69, 0.3)',
+              }}
+            >
+              <Database size={18} />
+              Open Data Manager
+              <ExternalLink size={14} />
+            </button>
+          )}
+
+          {sendAction && (
+            <button
+              onClick={() => sendAction("Show all data products")}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '12px 20px',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '10px',
+                fontSize: '13px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+              Back to Data Products
+            </button>
+          )}
+        </div>
 
         <div style={{ marginTop: '12px', fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center' }}>
           Data Manager will open with the data product datasets ready to load
