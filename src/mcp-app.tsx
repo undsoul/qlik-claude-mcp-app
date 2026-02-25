@@ -18,7 +18,7 @@ import {
   Bot, AppWindow, CheckCircle, AlertTriangle, ChevronRight,
   ExternalLink, FolderOpen, Database, Bell, Zap, RefreshCw,
   FileText, Search, File, Layers, XCircle, Clock, Timer, MoreVertical, GitBranch, Share2,
-  Maximize2, Minimize2, Loader2, Play
+  Maximize2, Minimize2, Loader2, Play, Plus
 } from "lucide-react";
 import "./global.css";
 
@@ -464,7 +464,7 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "glossary-detail": <GlossaryDetail data={data} callTool={callTool} />,
     "glossary-term": <GlossaryTermView data={data} />,
     "glossary-term-created": <ActionSuccess title="Term Created" data={data} />,
-    "data-products": <DataProductsGrid data={data} sendAction={sendAction} />,
+    "data-products": <DataProductsGrid data={data} sendAction={sendAction} callTool={callTool} />,
     "data-product-detail": <DataProductDetail data={data} callTool={callTool} openLink={openLink} />,
     "app-created-from-data-product": <AppCreatedFromDataProduct data={data} openLink={openLink} />,
     "dataset-profile": <DatasetProfileView data={data} />,
@@ -4112,20 +4112,33 @@ function GlossaryTermView({ data }: { data: any }) {
 }
 
 // ============ DATA PRODUCTS ============
-function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
+function DataProductsGrid({ data, sendAction, callTool }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void; callTool?: (name: string, args?: any) => void }) {
   const products = data.products || [];
+  const [creatingId, setCreatingId] = useState<string | null>(null);
+
+  const handleCreateApp = (e: React.MouseEvent, product: any) => {
+    e.stopPropagation();
+    if (!callTool) return;
+    setCreatingId(product.id);
+    callTool("create_app_from_data_product", {
+      productId: product.id,
+      productName: product.name,
+      spaceId: product.spaceId,
+      itemId: product.itemId || product.id,
+    });
+  };
 
   return (
     <Card header={{ label: "Data Products", title: `${products.length} Products`, gradient: "purple" }}>
       <div className="data-products-list">
         {products.map((product: any) => {
-          const trustScore = product.trustScore?.score;
           const isActivated = product.activated;
 
           return (
             <div
               key={product.id}
               className="data-product-card"
+              style={{ position: 'relative' }}
               onClick={() => sendAction(`Show details for data product "${product.name}"`, { productId: product.id })}
             >
               <div className="data-product-icon">📦</div>
@@ -4136,20 +4149,56 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
                 </div>
                 {product.description && <div className="data-product-desc">{product.description}</div>}
                 <div className="data-product-meta">
-                  {product.spaceId && (
-                    <span style={{ fontFamily: 'monospace', fontSize: '10px', opacity: 0.7 }}>
-                      Space: {product.spaceId.slice(0, 8)}...
+                  {(product.spaceName || product.spaceId) && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '2px 8px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '4px',
+                      fontSize: '11px'
+                    }}>
+                      <FolderOpen size={12} />
+                      {product.spaceName || product.spaceId?.slice(0, 8) + '...'}
                     </span>
                   )}
-                  {trustScore !== undefined && (
-                    <span style={{ color: trustScore >= 0.8 ? 'var(--accent-green)' : trustScore >= 0.5 ? 'orange' : 'red' }}>
-                      Trust: {(trustScore * 100).toFixed(0)}%
+                  {product.datasetIds?.length > 0 && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Database size={12} />
+                      {product.datasetIds.length} datasets
                     </span>
                   )}
-                  {product.datasetIds?.length > 0 && <span>{product.datasetIds.length} datasets</span>}
                   {product.updatedAt && <span>Updated: {new Date(product.updatedAt).toLocaleDateString()}</span>}
                 </div>
               </div>
+              {callTool && (
+                <button
+                  onClick={(e) => handleCreateApp(e, product)}
+                  disabled={creatingId === product.id}
+                  style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    padding: '4px 10px',
+                    fontSize: '11px',
+                    background: creatingId === product.id ? '#ccc' : 'linear-gradient(135deg, #4CAF50, #45a049)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: creatingId === product.id ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: 500,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }}
+                  title="Create App from Data Product"
+                >
+                  <Plus size={12} />
+                  {creatingId === product.id ? 'Creating...' : 'Create App'}
+                </button>
+              )}
             </div>
           );
         })}

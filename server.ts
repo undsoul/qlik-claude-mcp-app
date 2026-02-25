@@ -1446,11 +1446,28 @@ class QlikClient {
     // The data-governance API only has GET/PATCH/DELETE for individual products by ID
     const items = await this.search(undefined, ["dataproduct"]);
 
-    // Map items to use resourceId as id (data-governance API expects resourceId)
+    // Get unique space IDs and resolve names
+    const spaceIds = [...new Set(items.map((item: any) => item.spaceId).filter(Boolean))] as string[];
+    const spaceMap: Record<string, string> = {};
+
+    // Fetch space names in parallel
+    await Promise.all(
+      spaceIds.map(async (spaceId) => {
+        try {
+          const space = await this.fetch(`/spaces/${spaceId}`);
+          spaceMap[spaceId] = space.name;
+        } catch {
+          // Space resolution failed
+        }
+      })
+    );
+
+    // Map items to use resourceId as id and include space name
     return items.map((item: any) => ({
       ...item,
       id: item.resourceId || item.id, // Use resourceId for data-governance API compatibility
       itemId: item.id, // Keep original item ID for reference
+      spaceName: spaceMap[item.spaceId] || null,
     }));
   }
 
@@ -3723,9 +3740,10 @@ Use silent=true when gathering context for analysis (no UI shown).`,
     title: "Create App from Data Product",
     description: `Create a new Qlik Sense app from a data product and open Data Manager to load the datasets.`,
     inputSchema: {
-      productId: z.string().describe("Data product ID"),
+      productId: z.string().describe("Data product ID (resourceId)"),
       productName: z.string().describe("Data product name (for app naming)"),
       spaceId: z.string().optional().describe("Space ID to create the app in (optional, defaults to personal space)"),
+      itemId: z.string().optional().describe("Items API ID (for Data Manager URL)"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
@@ -3741,8 +3759,9 @@ Use silent=true when gathering context for analysis (no UI shown).`,
       };
     }
 
-    // Build Data Manager URL with data product reference
-    const dataManagerUrl = `${TENANT_URL}/sense/app/${appId}/datamanager/datamanager?type=dataproduct&itemId=${args.productId}`;
+    // Build Data Manager URL with data product reference (use itemId if available, otherwise productId)
+    const itemIdForUrl = args.itemId || args.productId;
+    const dataManagerUrl = `${TENANT_URL}/sense/app/${appId}/datamanager/datamanager?type=dataproduct&itemId=${itemIdForUrl}`;
 
     return {
       content: [{ type: "text", text: `Created app "${appName}" (${appId}). Open Data Manager to load datasets from the data product.` }],
