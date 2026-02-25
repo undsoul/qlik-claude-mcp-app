@@ -1499,27 +1499,60 @@ class QlikClient {
         enrichmentPromises.push(Promise.resolve({ activatedSpaces: [] }));
       }
 
-      // 4. Fetch dataset details
+      // 4. Fetch dataset details with space name and quality resolution
       if (product.datasetIds?.length > 0) {
         enrichmentPromises.push(
           Promise.all(
-            product.datasetIds.slice(0, 10).map((datasetId: string) =>
-              this.fetch(`/data-sets/${datasetId}`)
-                .then((ds: any) => ({
+            product.datasetIds.slice(0, 10).map(async (datasetId: string) => {
+              try {
+                // Fetch dataset details and quality in parallel
+                const [ds, qualityResult] = await Promise.all([
+                  this.fetch(`/data-sets/${datasetId}`),
+                  this.fetch(`/data-qualities/global-results?datasetId=${datasetId}`).catch(() => null),
+                ]);
+
+                // Resolve space name
+                let spaceName = ds.dataAssetInfo?.name || null;
+                if (!spaceName && ds.spaceId) {
+                  try {
+                    const space = await this.fetch(`/spaces/${ds.spaceId}`);
+                    spaceName = space.name;
+                  } catch {
+                    // Space resolution failed
+                  }
+                }
+
+                // Calculate quality metrics from data-qualities API
+                const qualityData = qualityResult?.qualities?.[0]?.quality;
+                let quality = null;
+                if (qualityData && qualityData.total > 0) {
+                  quality = {
+                    validity: (qualityData.valid / qualityData.total) * 100,
+                    completeness: ((qualityData.total - qualityData.empty) / qualityData.total) * 100,
+                    valid: qualityData.valid,
+                    invalid: qualityData.invalid,
+                    empty: qualityData.empty,
+                    total: qualityData.total,
+                    updatedAt: qualityData.updatedAt,
+                  };
+                }
+
+                return {
                   id: datasetId,
                   name: ds.name || ds.qri?.split("/").pop() || datasetId,
                   technicalName: ds.technicalName,
                   type: ds.type,
-                  spaceName: ds.spaceName,
+                  spaceName,
                   spaceId: ds.spaceId,
-                  size: ds.size,
+                  size: ds.operational?.size || ds.size,
                   rowCount: ds.operational?.rowCount,
                   lastLoadTime: ds.operational?.lastLoadTime,
-                  trustScore: ds.trustScore,
-                  quality: ds.quality,
-                }))
-                .catch(() => ({ id: datasetId, name: null }))
-            )
+                  quality,
+                };
+              } catch {
+                return { id: datasetId, name: null };
+              }
+            })
           ).then((datasets) => ({ datasets }))
         );
       } else {

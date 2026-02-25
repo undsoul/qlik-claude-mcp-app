@@ -4296,7 +4296,7 @@ function DataProductDetail({ data }: { data: any }) {
               {/* Header */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                gridTemplateColumns: '2fr 1.2fr 1fr 1fr',
                 gap: '8px',
                 padding: '8px 12px',
                 background: 'var(--bg-secondary)',
@@ -4306,50 +4306,70 @@ function DataProductDetail({ data }: { data: any }) {
                 textTransform: 'uppercase'
               }}>
                 <span>Name</span>
-                <span>Trust Score</span>
                 <span>Quality</span>
+                <span>Freshness</span>
                 <span>Space</span>
               </div>
               {/* Rows */}
-              {data.datasets.map((ds: any, idx: number) => (
-                <div key={idx} style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1fr 1fr 1fr',
-                  gap: '8px',
-                  padding: '10px 12px',
-                  borderTop: '1px solid var(--border-color)',
-                  fontSize: '12px',
-                  alignItems: 'center'
-                }}>
-                  <span style={{ fontWeight: 500 }}>{ds.name || ds.id?.slice(0, 12) + '...'}</span>
-                  <span style={{
-                    color: (ds.trustScore?.score || 0) >= 80 ? 'var(--accent-green)' : 'var(--text-secondary)'
+              {data.datasets.map((ds: any, idx: number) => {
+                // Calculate relative time for freshness
+                const lastLoad = ds.lastLoadTime ? new Date(ds.lastLoadTime) : null;
+                const now = new Date();
+                let freshness = '-';
+                if (lastLoad) {
+                  const diffMs = now.getTime() - lastLoad.getTime();
+                  const diffMins = Math.floor(diffMs / 60000);
+                  const diffHours = Math.floor(diffMs / 3600000);
+                  const diffDays = Math.floor(diffMs / 86400000);
+                  if (diffMins < 60) freshness = `${diffMins} min ago`;
+                  else if (diffHours < 24) freshness = `${diffHours} hours ago`;
+                  else if (diffDays < 30) freshness = `${diffDays} days ago`;
+                  else if (diffDays < 365) freshness = `${Math.floor(diffDays / 30)} months ago`;
+                  else freshness = `${Math.floor(diffDays / 365)} year ago`;
+                }
+                const qualityPct = ds.quality?.validity ?? ds.quality?.completeness;
+                return (
+                  <div key={idx} style={{
+                    display: 'grid',
+                    gridTemplateColumns: '2fr 1.2fr 1fr 1fr',
+                    gap: '8px',
+                    padding: '10px 12px',
+                    borderTop: '1px solid var(--border-color)',
+                    fontSize: '12px',
+                    alignItems: 'center'
                   }}>
-                    {ds.trustScore?.score ? `${(ds.trustScore.score / 20).toFixed(1)}/5` : '-'}
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <div style={{
-                      width: '40px',
-                      height: '6px',
-                      background: 'var(--border-color)',
-                      borderRadius: '3px',
-                      overflow: 'hidden'
-                    }}>
+                    <span style={{ fontWeight: 500 }}>{ds.name || ds.id?.slice(0, 12) + '...'}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <div style={{
-                        width: `${ds.quality?.completeness || 0}%`,
-                        height: '100%',
-                        background: 'var(--accent-green)'
-                      }} />
+                        width: '50px',
+                        height: '8px',
+                        background: 'var(--border-color)',
+                        borderRadius: '4px',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{
+                          width: `${qualityPct || 0}%`,
+                          height: '100%',
+                          background: (qualityPct || 0) >= 80 ? 'var(--accent-green)' : (qualityPct || 0) >= 50 ? 'orange' : 'red'
+                        }} />
+                      </div>
+                      <span style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: (qualityPct || 0) >= 80 ? 'var(--accent-green)' : 'var(--text-secondary)'
+                      }}>
+                        {qualityPct !== undefined ? `${qualityPct.toFixed(0)}%` : '-'}
+                      </span>
                     </div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                      {ds.quality?.completeness?.toFixed(0) || '-'}%
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      {freshness}
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      {ds.spaceName || '-'}
                     </span>
                   </div>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    {ds.spaceName || '-'}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
