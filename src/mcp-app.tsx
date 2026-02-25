@@ -4135,6 +4135,11 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
                 </div>
                 {product.description && <div className="data-product-desc">{product.description}</div>}
                 <div className="data-product-meta">
+                  {product.spaceId && (
+                    <span style={{ fontFamily: 'monospace', fontSize: '10px', opacity: 0.7 }}>
+                      Space: {product.spaceId.slice(0, 8)}...
+                    </span>
+                  )}
                   {trustScore !== undefined && (
                     <span style={{ color: trustScore >= 0.8 ? 'var(--accent-green)' : trustScore >= 0.5 ? 'orange' : 'red' }}>
                       Trust: {(trustScore * 100).toFixed(0)}%
