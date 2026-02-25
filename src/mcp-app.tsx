@@ -4138,18 +4138,18 @@ function DataProductsGrid({ data, sendAction, callTool }: { data: any; sendActio
             <div
               key={product.id}
               className="data-product-card"
-              style={{ position: 'relative' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}
               onClick={() => sendAction(`Show details for data product "${product.name}"`, { productId: product.id })}
             >
               <div className="data-product-icon">📦</div>
-              <div className="data-product-info">
+              <div className="data-product-info" style={{ flex: 1, minWidth: 0, paddingRight: callTool ? '100px' : '0' }}>
                 <div className="data-product-name">
                   {product.name}
                   {isActivated && <span className="results-badge green" style={{ marginLeft: '8px', fontSize: '10px' }}>Active</span>}
                 </div>
                 {product.description && <div className="data-product-desc">{product.description}</div>}
                 <div className="data-product-meta">
-                  {(product.spaceName || product.spaceId) && (
+                  {product.spaceName && (
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -4160,7 +4160,7 @@ function DataProductsGrid({ data, sendAction, callTool }: { data: any; sendActio
                       fontSize: '11px'
                     }}>
                       <FolderOpen size={12} />
-                      {product.spaceName || product.spaceId?.slice(0, 8) + '...'}
+                      {product.spaceName}
                     </span>
                   )}
                   {product.datasetIds?.length > 0 && (
@@ -4178,24 +4178,26 @@ function DataProductsGrid({ data, sendAction, callTool }: { data: any; sendActio
                   disabled={creatingId === product.id}
                   style={{
                     position: 'absolute',
-                    top: '8px',
-                    right: '8px',
-                    padding: '4px 10px',
-                    fontSize: '11px',
+                    top: '50%',
+                    right: '12px',
+                    transform: 'translateY(-50%)',
+                    padding: '6px 12px',
+                    fontSize: '12px',
                     background: creatingId === product.id ? '#ccc' : 'linear-gradient(135deg, #4CAF50, #45a049)',
                     color: 'white',
                     border: 'none',
-                    borderRadius: '4px',
+                    borderRadius: '6px',
                     cursor: creatingId === product.id ? 'wait' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
                     fontWeight: 500,
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
+                    whiteSpace: 'nowrap',
                   }}
                   title="Create App from Data Product"
                 >
-                  <Plus size={12} />
+                  <Plus size={14} />
                   {creatingId === product.id ? 'Creating...' : 'Create App'}
                 </button>
               )}
