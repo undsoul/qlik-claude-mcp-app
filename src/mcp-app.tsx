@@ -466,7 +466,7 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "glossary-term-created": <ActionSuccess title="Term Created" data={data} />,
     "data-products": <DataProductsGrid data={data} sendAction={sendAction} />,
     "data-product-detail": <DataProductDetail data={data} callTool={callTool} openLink={openLink} />,
-    "app-created-from-data-product": <AppCreatedFromDataProduct data={data} openLink={openLink} sendAction={sendAction} />,
+    "app-created-from-data-product": <AppCreatedFromDataProduct data={data} openLink={openLink} callTool={callTool} />,
     "dataset-profile": <DatasetProfileView data={data} />,
     "bookmarks": <BookmarksView data={data} sendAction={sendAction} />,
     "variables": <VariablesView data={data} sendAction={sendAction} />,
@@ -5190,7 +5190,7 @@ function ActionSuccess({ title, data }: { title: string; data: any }) {
   );
 }
 
-function AppCreatedFromDataProduct({ data, openLink, sendAction }: { data: any; openLink?: (url: string) => void; sendAction?: (action: string) => void }) {
+function AppCreatedFromDataProduct({ data, openLink, callTool }: { data: any; openLink?: (url: string) => void; callTool?: (name: string, args?: any) => void }) {
   return (
     <Card header={{ label: "App Created", title: data.appName || "New Application", gradient: "green" }}>
       <div style={{ padding: '8px 0' }}>
@@ -5248,9 +5248,9 @@ function AppCreatedFromDataProduct({ data, openLink, sendAction }: { data: any; 
             </button>
           )}
 
-          {sendAction && (
+          {callTool && (
             <button
-              onClick={() => sendAction("Show all data products")}
+              onClick={() => callTool("data_products")}
               style={{
                 width: '100%',
                 display: 'flex',
