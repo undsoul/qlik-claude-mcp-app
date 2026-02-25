@@ -4282,8 +4282,79 @@ function DataProductDetail({ data }: { data: any }) {
           </div>
         )}
 
-        {/* Datasets */}
-        {datasetIds.length > 0 && (
+        {/* Datasets Table */}
+        {data.datasets?.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Datasets ({data.datasets.length})
+            </div>
+            <div style={{
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              overflow: 'hidden'
+            }}>
+              {/* Header */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                gap: '8px',
+                padding: '8px 12px',
+                background: 'var(--bg-secondary)',
+                fontSize: '10px',
+                fontWeight: 600,
+                color: 'var(--text-secondary)',
+                textTransform: 'uppercase'
+              }}>
+                <span>Name</span>
+                <span>Trust Score</span>
+                <span>Quality</span>
+                <span>Space</span>
+              </div>
+              {/* Rows */}
+              {data.datasets.map((ds: any, idx: number) => (
+                <div key={idx} style={{
+                  display: 'grid',
+                  gridTemplateColumns: '2fr 1fr 1fr 1fr',
+                  gap: '8px',
+                  padding: '10px 12px',
+                  borderTop: '1px solid var(--border-color)',
+                  fontSize: '12px',
+                  alignItems: 'center'
+                }}>
+                  <span style={{ fontWeight: 500 }}>{ds.name || ds.id?.slice(0, 12) + '...'}</span>
+                  <span style={{
+                    color: (ds.trustScore?.score || 0) >= 80 ? 'var(--accent-green)' : 'var(--text-secondary)'
+                  }}>
+                    {ds.trustScore?.score ? `${(ds.trustScore.score / 20).toFixed(1)}/5` : '-'}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <div style={{
+                      width: '40px',
+                      height: '6px',
+                      background: 'var(--border-color)',
+                      borderRadius: '3px',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        width: `${ds.quality?.completeness || 0}%`,
+                        height: '100%',
+                        background: 'var(--accent-green)'
+                      }} />
+                    </div>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                      {ds.quality?.completeness?.toFixed(0) || '-'}%
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    {ds.spaceName || '-'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Fallback: Show dataset IDs if no enriched data */}
+        {!data.datasets?.length && datasetIds.length > 0 && (
           <div style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
               Datasets ({datasetIds.length})
@@ -4321,8 +4392,33 @@ function DataProductDetail({ data }: { data: any }) {
           </div>
         )}
 
-        {/* Activated On Spaces */}
-        {data.activatedOn?.length > 0 && (
+        {/* Activated On Spaces - with resolved names */}
+        {data.activatedSpaces?.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Activated In ({data.activatedSpaces.length} spaces)
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {data.activatedSpaces.map((space: any, idx: number) => (
+                <span key={idx} style={{
+                  fontSize: '11px',
+                  padding: '6px 10px',
+                  background: 'var(--accent-green)',
+                  color: 'white',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <Share2 size={12} />
+                  {space.name || space.id?.slice(0, 12) + '...'}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Fallback: Show space IDs if no resolved names */}
+        {!data.activatedSpaces?.length && data.activatedOn?.length > 0 && (
           <div style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
               Published to Spaces ({data.activatedOn.length})
@@ -4346,11 +4442,21 @@ function DataProductDetail({ data }: { data: any }) {
 
         {/* Metadata */}
         <div className="product-meta-grid" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
-          {data.ownerId && <div className="meta-item"><strong>Owner:</strong> {data.ownerId}</div>}
-          {data.spaceId && <div className="meta-item"><strong>Space:</strong> {data.spaceId}</div>}
-          {data.createdAt && <div className="meta-item"><strong>Created:</strong> {new Date(data.createdAt).toLocaleDateString()}</div>}
-          {data.updatedAt && <div className="meta-item"><strong>Updated:</strong> {new Date(data.updatedAt).toLocaleDateString()}</div>}
-          {data.activatedAt && <div className="meta-item"><strong>Activated:</strong> {new Date(data.activatedAt).toLocaleDateString()}</div>}
+          {(data.ownerName || data.ownerId) && (
+            <div className="meta-item">
+              <strong>Owner:</strong> {data.ownerName || data.ownerId}
+              {data.ownerEmail && <span style={{ fontSize: '10px', color: 'var(--text-secondary)', marginLeft: '4px' }}>({data.ownerEmail})</span>}
+            </div>
+          )}
+          {(data.spaceName || data.spaceId) && (
+            <div className="meta-item">
+              <strong>Space:</strong> {data.spaceName || data.spaceId}
+              {data.spaceType && <span style={{ fontSize: '10px', color: 'var(--text-secondary)', marginLeft: '4px' }}>({data.spaceType})</span>}
+            </div>
+          )}
+          {data.createdAt && <div className="meta-item"><strong>Created:</strong> {new Date(data.createdAt).toLocaleString()}</div>}
+          {data.updatedAt && <div className="meta-item"><strong>Updated:</strong> {new Date(data.updatedAt).toLocaleString()}</div>}
+          {data.activatedAt && <div className="meta-item"><strong>Last Activated:</strong> {new Date(data.activatedAt).toLocaleString()}</div>}
           {glossaryIds.length > 0 && <div className="meta-item"><strong>Glossaries:</strong> {glossaryIds.length}</div>}
           {data.apiConsumableDatasetIds?.length > 0 && <div className="meta-item"><strong>API Endpoints:</strong> {data.apiConsumableDatasetIds.length}</div>}
         </div>

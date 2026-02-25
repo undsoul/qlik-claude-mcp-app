@@ -1459,18 +1459,90 @@ class QlikClient {
     try {
       const product = await this.fetch(`/data-governance/data-products/${productId}`);
 
-      // Also fetch changelog for modification history
-      let changelog: any[] = [];
-      try {
-        const changelogResult = await this.fetch(`/data-governance/data-products/${productId}/changelogs`);
-        changelog = changelogResult.data || [];
-      } catch {
-        // Changelog might not be available
+      // Enrich with resolved names in parallel
+      const enrichmentPromises: Promise<any>[] = [];
+
+      // 1. Resolve space name
+      if (product.spaceId) {
+        enrichmentPromises.push(
+          this.fetch(`/spaces/${product.spaceId}`)
+            .then((space: any) => ({ spaceName: space.name, spaceType: space.type }))
+            .catch(() => ({ spaceName: null }))
+        );
+      } else {
+        enrichmentPromises.push(Promise.resolve({ spaceName: null }));
       }
+
+      // 2. Resolve owner name
+      if (product.ownerId) {
+        enrichmentPromises.push(
+          this.fetch(`/users/${product.ownerId}`)
+            .then((user: any) => ({ ownerName: user.name, ownerEmail: user.email }))
+            .catch(() => ({ ownerName: null }))
+        );
+      } else {
+        enrichmentPromises.push(Promise.resolve({ ownerName: null }));
+      }
+
+      // 3. Resolve activated spaces names
+      if (product.activatedOn?.length > 0) {
+        enrichmentPromises.push(
+          Promise.all(
+            product.activatedOn.map((spaceId: string) =>
+              this.fetch(`/spaces/${spaceId}`)
+                .then((space: any) => ({ id: spaceId, name: space.name, type: space.type }))
+                .catch(() => ({ id: spaceId, name: null }))
+            )
+          ).then((spaces) => ({ activatedSpaces: spaces }))
+        );
+      } else {
+        enrichmentPromises.push(Promise.resolve({ activatedSpaces: [] }));
+      }
+
+      // 4. Fetch dataset details
+      if (product.datasetIds?.length > 0) {
+        enrichmentPromises.push(
+          Promise.all(
+            product.datasetIds.slice(0, 10).map((datasetId: string) =>
+              this.fetch(`/data-sets/${datasetId}`)
+                .then((ds: any) => ({
+                  id: datasetId,
+                  name: ds.name || ds.qri?.split("/").pop() || datasetId,
+                  technicalName: ds.technicalName,
+                  type: ds.type,
+                  spaceName: ds.spaceName,
+                  spaceId: ds.spaceId,
+                  size: ds.size,
+                  rowCount: ds.operational?.rowCount,
+                  lastLoadTime: ds.operational?.lastLoadTime,
+                  trustScore: ds.trustScore,
+                  quality: ds.quality,
+                }))
+                .catch(() => ({ id: datasetId, name: null }))
+            )
+          ).then((datasets) => ({ datasets }))
+        );
+      } else {
+        enrichmentPromises.push(Promise.resolve({ datasets: [] }));
+      }
+
+      // 5. Fetch changelog
+      enrichmentPromises.push(
+        this.fetch(`/data-governance/data-products/${productId}/changelogs`)
+          .then((result: any) => ({ changelog: result.data || [] }))
+          .catch(() => ({ changelog: [] }))
+      );
+
+      // Wait for all enrichments
+      const [spaceInfo, ownerInfo, activatedInfo, datasetsInfo, changelogInfo] = await Promise.all(enrichmentPromises);
 
       return {
         ...product,
-        changelog,
+        ...spaceInfo,
+        ...ownerInfo,
+        ...activatedInfo,
+        ...datasetsInfo,
+        ...changelogInfo,
       };
     } catch (error: any) {
       console.error(`[DataProduct] Detail API failed for ${productId}: ${error.message}`);
