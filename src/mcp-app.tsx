@@ -4185,26 +4185,47 @@ function DataProductDetail({ data }: { data: any }) {
         {trustScore !== undefined && (
           <div style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              Trust Score
+              Qlik Trust Score
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
               <div style={{
-                fontSize: '24px',
-                fontWeight: 700,
-                color: trustScore >= 0.8 ? 'var(--accent-green)' : trustScore >= 0.5 ? 'orange' : 'red'
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '12px 16px',
+                background: 'var(--bg-secondary)',
+                borderRadius: '12px'
               }}>
-                {(trustScore * 100).toFixed(0)}%
+                <div style={{
+                  fontSize: '28px',
+                  fontWeight: 700,
+                  color: trustScore >= 80 ? 'var(--accent-green)' : trustScore >= 50 ? 'orange' : 'red'
+                }}>
+                  {(trustScore / 20).toFixed(1)}/5
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  ({trustScore.toFixed(1)}%)
+                </div>
               </div>
               {trustDimensions.length > 0 && (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {trustDimensions.map((dim: any, idx: number) => (
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {trustDimensions.filter((d: any) => d.score !== undefined).map((dim: any, idx: number) => (
                     <span key={idx} style={{
-                      fontSize: '11px',
+                      fontSize: '10px',
                       padding: '4px 8px',
                       background: 'var(--bg-secondary)',
-                      borderRadius: '4px'
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
                     }}>
-                      {dim.name}: {(dim.score * 100).toFixed(0)}%
+                      <span style={{ textTransform: 'capitalize' }}>{dim.id?.toLowerCase()}</span>
+                      <span style={{
+                        fontWeight: 600,
+                        color: dim.score >= 80 ? 'var(--accent-green)' : dim.score >= 50 ? 'orange' : 'var(--text-secondary)'
+                      }}>
+                        {dim.score?.toFixed(0)}%
+                      </span>
                     </span>
                   ))}
                 </div>
@@ -4222,16 +4243,16 @@ function DataProductDetail({ data }: { data: any }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
               {quality.validity !== undefined && (
                 <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-green)' }}>
-                    {(quality.validity * 100).toFixed(0)}%
+                  <div style={{ fontSize: '18px', fontWeight: 700, color: quality.validity >= 80 ? 'var(--accent-green)' : 'orange' }}>
+                    {quality.validity.toFixed(0)}%
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Validity</div>
                 </div>
               )}
               {quality.completeness !== undefined && (
                 <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-green)' }}>
-                    {(quality.completeness * 100).toFixed(0)}%
+                  <div style={{ fontSize: '18px', fontWeight: 700, color: quality.completeness >= 80 ? 'var(--accent-green)' : 'orange' }}>
+                    {quality.completeness.toFixed(0)}%
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Completeness</div>
                 </div>
@@ -4300,6 +4321,29 @@ function DataProductDetail({ data }: { data: any }) {
           </div>
         )}
 
+        {/* Activated On Spaces */}
+        {data.activatedOn?.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Published to Spaces ({data.activatedOn.length})
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {data.activatedOn.map((spaceId: string, idx: number) => (
+                <span key={idx} style={{
+                  fontSize: '10px',
+                  padding: '4px 8px',
+                  background: 'var(--accent-green)',
+                  color: 'white',
+                  borderRadius: '4px',
+                  fontFamily: 'monospace'
+                }}>
+                  {spaceId.slice(0, 12)}...
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Metadata */}
         <div className="product-meta-grid" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
           {data.ownerId && <div className="meta-item"><strong>Owner:</strong> {data.ownerId}</div>}
@@ -4308,6 +4352,7 @@ function DataProductDetail({ data }: { data: any }) {
           {data.updatedAt && <div className="meta-item"><strong>Updated:</strong> {new Date(data.updatedAt).toLocaleDateString()}</div>}
           {data.activatedAt && <div className="meta-item"><strong>Activated:</strong> {new Date(data.activatedAt).toLocaleDateString()}</div>}
           {glossaryIds.length > 0 && <div className="meta-item"><strong>Glossaries:</strong> {glossaryIds.length}</div>}
+          {data.apiConsumableDatasetIds?.length > 0 && <div className="meta-item"><strong>API Endpoints:</strong> {data.apiConsumableDatasetIds.length}</div>}
         </div>
 
         {/* Changelog */}
