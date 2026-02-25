@@ -562,7 +562,44 @@ class QlikClient {
   }
 
   async automlGetExperiment(experimentId: string): Promise<any> {
-    return this.fetch(`/ml/experiments/${experimentId}`);
+    // Fetch experiment details, models, and versions in parallel
+    const [experiment, modelsResult, versionsResult] = await Promise.all([
+      this.fetch(`/ml/experiments/${experimentId}`),
+      this.fetch(`/ml/experiments/${experimentId}/models`).catch(() => ({ data: [] })),
+      this.fetch(`/ml/experiments/${experimentId}/versions`).catch(() => ({ data: [] })),
+    ]);
+
+    // Extract models with metrics
+    const models = (modelsResult.data || []).map((m: any) => ({
+      id: m.id,
+      algorithm: m.algorithm,
+      status: m.status,
+      isTopModel: m.isTopModel,
+      // Training metrics
+      trainMetrics: m.trainMetrics || {},
+      // Test metrics (actual performance)
+      testMetrics: m.testMetrics || {},
+      // Dropped features (data quality issues)
+      droppedFeatures: m.droppedFeatures || [],
+      createdAt: m.createdAt,
+    }));
+
+    // Extract versions
+    const versions = (versionsResult.data || []).map((v: any) => ({
+      id: v.id,
+      status: v.status,
+      topModelId: v.topModelId,
+      featuresList: v.featuresList || [],
+      targetFeature: v.targetFeature,
+      experimentType: v.experimentType,
+      createdAt: v.createdAt,
+    }));
+
+    return {
+      ...experiment,
+      models,
+      versions,
+    };
   }
 
   async automlListDeployments(spaceId?: string): Promise<any> {

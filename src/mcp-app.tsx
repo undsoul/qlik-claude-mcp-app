@@ -2189,6 +2189,17 @@ function ExperimentDetail({ data, openLink }: { data: any; openLink?: (url: stri
   const id = data.data?.id || data.id;
   const name = attrs.name || data.name || "Experiment";
   const experimentUrl = data.tenantUrl && id ? `${data.tenantUrl}/automl/experiments/${id}` : null;
+  const models = data.models || [];
+  const versions = data.versions || [];
+
+  // Find top model
+  const topModel = models.find((m: any) => m.isTopModel) || models[0];
+
+  // Format metric value
+  const formatMetric = (value: number | undefined) => {
+    if (value === undefined || value === null) return "-";
+    return (value * 100).toFixed(2) + "%";
+  };
 
   return (
     <div className="results-panel">
@@ -2206,6 +2217,8 @@ function ExperimentDetail({ data, openLink }: { data: any; openLink?: (url: stri
           )}
         </div>
       </div>
+
+      {/* Basic Info */}
       <div className="detail-info-rows">
         {(attrs.targetFeature || attrs.target) && (
           <div className="detail-row">
@@ -2213,29 +2226,182 @@ function ExperimentDetail({ data, openLink }: { data: any; openLink?: (url: stri
             <span className="detail-value">{attrs.targetFeature || attrs.target}</span>
           </div>
         )}
-        <div className="detail-row">
-          <span className="detail-label">Algorithm</span>
-          <span className="detail-value">{attrs.algorithm || "Auto"}</span>
-        </div>
+        {attrs.experimentType && (
+          <div className="detail-row">
+            <span className="detail-label">Problem Type</span>
+            <span className="detail-value">{attrs.experimentType}</span>
+          </div>
+        )}
         <div className="detail-row">
           <span className="detail-label">Created</span>
           <span className="detail-value">{formatDate(attrs.createdAt)}</span>
         </div>
-        {attrs.updatedAt && attrs.updatedAt !== attrs.createdAt && (
-          <div className="detail-row">
-            <span className="detail-label">Updated</span>
-            <span className="detail-value">{formatDate(attrs.updatedAt)}</span>
-          </div>
-        )}
-        {attrs.ownerId && (
-          <div className="detail-row">
-            <span className="detail-label">Owner ID</span>
-            <span className="detail-value mono">{attrs.ownerId}</span>
-          </div>
-        )}
       </div>
+
+      {/* Top Model Performance */}
+      {topModel && (topModel.testMetrics?.accuracy !== undefined || topModel.testMetrics?.auc !== undefined) && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+            Top Model Performance ({topModel.algorithm})
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
+            {topModel.testMetrics?.accuracy !== undefined && (
+              <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                  {formatMetric(topModel.testMetrics.accuracy)}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Accuracy</div>
+              </div>
+            )}
+            {topModel.testMetrics?.auc !== undefined && (
+              <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                  {formatMetric(topModel.testMetrics.auc)}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>AUC</div>
+              </div>
+            )}
+            {topModel.testMetrics?.precision !== undefined && (
+              <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                  {formatMetric(topModel.testMetrics.precision)}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Precision</div>
+              </div>
+            )}
+            {topModel.testMetrics?.recall !== undefined && (
+              <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                  {formatMetric(topModel.testMetrics.recall)}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Recall</div>
+              </div>
+            )}
+            {topModel.testMetrics?.f1 !== undefined && (
+              <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                  {formatMetric(topModel.testMetrics.f1)}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>F1 Score</div>
+              </div>
+            )}
+            {topModel.testMetrics?.logLoss !== undefined && (
+              <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                  {topModel.testMetrics.logLoss.toFixed(4)}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Log Loss</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* All Models Comparison */}
+      {models.length > 1 && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+            All Models ({models.length})
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <th style={{ textAlign: 'left', padding: '8px 4px' }}>Algorithm</th>
+                  <th style={{ textAlign: 'right', padding: '8px 4px' }}>Accuracy</th>
+                  <th style={{ textAlign: 'right', padding: '8px 4px' }}>AUC</th>
+                  <th style={{ textAlign: 'right', padding: '8px 4px' }}>F1</th>
+                  <th style={{ textAlign: 'center', padding: '8px 4px' }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {models.map((model: any, idx: number) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)', background: model.isTopModel ? 'var(--bg-secondary)' : 'transparent' }}>
+                    <td style={{ padding: '8px 4px' }}>
+                      {model.algorithm}
+                      {model.isTopModel && <span style={{ marginLeft: '6px', fontSize: '10px', color: 'var(--accent-green)' }}>TOP</span>}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '8px 4px', fontFamily: 'monospace' }}>
+                      {formatMetric(model.testMetrics?.accuracy)}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '8px 4px', fontFamily: 'monospace' }}>
+                      {formatMetric(model.testMetrics?.auc)}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '8px 4px', fontFamily: 'monospace' }}>
+                      {formatMetric(model.testMetrics?.f1)}
+                    </td>
+                    <td style={{ textAlign: 'center', padding: '8px 4px' }}>
+                      <span className={`results-badge ${model.status === 'ready' ? 'green' : ''}`} style={{ fontSize: '10px' }}>
+                        {model.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Dropped Features (Data Quality) */}
+      {topModel?.droppedFeatures?.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+            Dropped Features ({topModel.droppedFeatures.length})
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {topModel.droppedFeatures.slice(0, 10).map((f: any, idx: number) => (
+              <span key={idx} style={{
+                fontSize: '11px',
+                padding: '4px 8px',
+                background: 'var(--bg-secondary)',
+                borderRadius: '4px',
+                color: 'var(--text-secondary)'
+              }}>
+                {f.name || f} {f.reason && <span style={{ opacity: 0.7 }}>({f.reason})</span>}
+              </span>
+            ))}
+            {topModel.droppedFeatures.length > 10 && (
+              <span style={{ fontSize: '11px', padding: '4px 8px', color: 'var(--text-secondary)' }}>
+                +{topModel.droppedFeatures.length - 10} more
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Versions */}
+      {versions.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+            Versions ({versions.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {versions.slice(0, 5).map((v: any, idx: number) => (
+              <div key={idx} style={{
+                fontSize: '12px',
+                padding: '8px 12px',
+                background: 'var(--bg-secondary)',
+                borderRadius: '6px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>
+                  <span style={{ fontWeight: 500 }}>v{versions.length - idx}</span>
+                  {v.experimentType && <span style={{ marginLeft: '8px', opacity: 0.7 }}>{v.experimentType}</span>}
+                </span>
+                <span className={`results-badge ${v.status === 'ready' ? 'green' : ''}`} style={{ fontSize: '10px' }}>
+                  {v.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {attrs.description && (
-        <div className="detail-description">
+        <div className="detail-description" style={{ marginTop: '16px' }}>
           <span className="detail-label">Description</span>
           <p>{attrs.description}</p>
         </div>
