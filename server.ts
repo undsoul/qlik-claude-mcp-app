@@ -1566,10 +1566,11 @@ class QlikClient {
           Promise.all(
             product.datasetIds.slice(0, 10).map(async (datasetId: string) => {
               try {
-                // Fetch dataset details and quality in parallel
-                const [ds, qualityResult] = await Promise.all([
+                // Fetch dataset details, quality, and trust score in parallel
+                const [ds, qualityResult, trustScoreResult] = await Promise.all([
                   this.fetch(`/data-sets/${datasetId}`),
                   this.fetch(`/data-qualities/global-results?datasetId=${datasetId}`).catch(() => null),
+                  this.fetch(`/data-governance/data-sets/${datasetId}`).catch(() => null),
                 ]);
 
                 // Resolve space name
@@ -1598,6 +1599,10 @@ class QlikClient {
                   };
                 }
 
+                // Extract trust score from data-governance response
+                console.error(`[Dataset TrustScore] ${datasetId}:`, JSON.stringify(trustScoreResult, null, 2)?.slice(0, 500));
+                const trustScore = trustScoreResult?.trustScore || null;
+
                 return {
                   id: datasetId,
                   name: ds.name || ds.qri?.split("/").pop() || datasetId,
@@ -1609,6 +1614,7 @@ class QlikClient {
                   rowCount: ds.operational?.rowCount,
                   lastLoadTime: ds.operational?.lastLoadTime,
                   quality,
+                  trustScore,
                 };
               } catch {
                 return { id: datasetId, name: null };
