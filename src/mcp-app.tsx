@@ -465,7 +465,8 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "glossary-term": <GlossaryTermView data={data} />,
     "glossary-term-created": <ActionSuccess title="Term Created" data={data} />,
     "data-products": <DataProductsGrid data={data} sendAction={sendAction} />,
-    "data-product-detail": <DataProductDetail data={data} />,
+    "data-product-detail": <DataProductDetail data={data} callTool={callTool} openLink={openLink} />,
+    "app-created-from-data-product": <AppCreatedFromDataProduct data={data} openLink={openLink} />,
     "dataset-profile": <DatasetProfileView data={data} />,
     "bookmarks": <BookmarksView data={data} sendAction={sendAction} />,
     "variables": <VariablesView data={data} sendAction={sendAction} />,
@@ -4158,7 +4159,8 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
   );
 }
 
-function DataProductDetail({ data }: { data: any }) {
+function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?: (name: string, args?: any) => void; openLink?: (url: string) => void }) {
+  const [creating, setCreating] = useState(false);
   const trustScore = data.trustScore?.score;
   const trustDimensions = data.trustScore?.dimensions || [];
   const quality = data.quality || {};
@@ -4168,9 +4170,67 @@ function DataProductDetail({ data }: { data: any }) {
   const tags = data.tags || [];
   const changelog = data.changelog || [];
 
+  const handleCreateApp = async () => {
+    if (!callTool) return;
+    setCreating(true);
+    callTool("create_app_from_data_product", {
+      productId: data.id,
+      productName: data.name,
+      spaceId: data.spaceId,
+    });
+  };
+
   return (
     <Card header={{ label: "Data Product", title: data.name || "Product Details", gradient: "purple" }}>
       <div className="data-product-detail">
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          {callTool && (
+            <button
+              className="action-btn primary"
+              onClick={handleCreateApp}
+              disabled={creating}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '10px 16px',
+                background: creating ? 'var(--bg-secondary)' : 'var(--accent-green)',
+                color: creating ? 'var(--text-secondary)' : 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: creating ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {creating ? <Loader2 size={16} className="spinning" /> : <AppWindow size={16} />}
+              {creating ? 'Creating...' : 'Create Application'}
+            </button>
+          )}
+          {openLink && data.tenantUrl && (
+            <button
+              onClick={() => openLink(`${data.tenantUrl}/catalog?type=dataproduct&spaceId=${data.spaceId || ''}`)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '10px 16px',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              <ExternalLink size={16} />
+              Open in Qlik Cloud
+            </button>
+          )}
+        </div>
+
         {/* Status badges */}
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
           {data.activated && <span className="results-badge green">Activated</span>}
@@ -5231,6 +5291,71 @@ function ActionSuccess({ title, data }: { title: string; data: any }) {
               <span className="si-val">{String(val)}</span>
             </div>
           ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function AppCreatedFromDataProduct({ data, openLink }: { data: any; openLink?: (url: string) => void }) {
+  return (
+    <Card header={{ label: "App Created", title: data.appName || "New Application", gradient: "green" }}>
+      <div style={{ padding: '8px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <div style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '12px',
+            background: 'var(--accent-green)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <CheckCircle size={32} color="white" />
+          </div>
+          <div>
+            <div style={{ fontSize: '16px', fontWeight: 600 }}>{data.appName}</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              Created from "{data.productName}"
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>App ID</div>
+          <div style={{ fontFamily: 'monospace', fontSize: '11px', background: 'var(--bg-secondary)', padding: '8px', borderRadius: '6px' }}>
+            {data.appId}
+          </div>
+        </div>
+
+        {openLink && data.dataManagerUrl && (
+          <button
+            onClick={() => openLink(data.dataManagerUrl)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '14px 20px',
+              background: 'linear-gradient(135deg, #009845, #00b050)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '10px',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0, 152, 69, 0.3)',
+            }}
+          >
+            <Database size={18} />
+            Open Data Manager
+            <ExternalLink size={14} />
+          </button>
+        )}
+
+        <div style={{ marginTop: '12px', fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+          Data Manager will open with the data product datasets ready to load
         </div>
       </div>
     </Card>

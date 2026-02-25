@@ -3714,6 +3714,46 @@ Use silent=true when gathering context for analysis (no UI shown).`,
       structuredContent: {
         type: "data-product-detail",
         ...product,
+        tenantUrl: TENANT_URL,
+      },
+    };
+  });
+
+  registerAppTool(server, "create_app_from_data_product", {
+    title: "Create App from Data Product",
+    description: `Create a new Qlik Sense app from a data product and open Data Manager to load the datasets.`,
+    inputSchema: {
+      productId: z.string().describe("Data product ID"),
+      productName: z.string().describe("Data product name (for app naming)"),
+      spaceId: z.string().optional().describe("Space ID to create the app in (optional, defaults to personal space)"),
+    },
+    _meta: { ui: { resourceUri } },
+  }, async (args): Promise<CallToolResult> => {
+    // Create app with data product name
+    const appName = `${args.productName} Analysis`;
+    const newApp = await qlik.createApp(appName, args.spaceId);
+    const appId = newApp.attributes?.id || newApp.id;
+
+    if (!appId) {
+      return {
+        content: [{ type: "text", text: "Failed to create app" }],
+        structuredContent: { type: "error", message: "App creation failed" },
+      };
+    }
+
+    // Build Data Manager URL with data product reference
+    const dataManagerUrl = `${TENANT_URL}/sense/app/${appId}/datamanager/datamanager?type=dataproduct&itemId=${args.productId}`;
+
+    return {
+      content: [{ type: "text", text: `Created app "${appName}" (${appId}). Open Data Manager to load datasets from the data product.` }],
+      structuredContent: {
+        type: "app-created-from-data-product",
+        appId,
+        appName,
+        productId: args.productId,
+        productName: args.productName,
+        dataManagerUrl,
+        tenantUrl: TENANT_URL,
       },
     };
   });
