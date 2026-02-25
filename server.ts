@@ -1598,11 +1598,15 @@ class QlikClient {
                   };
                 }
 
-                // Calculate trust score from quality data (validity + completeness average)
+                // Calculate trust score using Qlik formula weights
+                // VALIDITY: 40%, COMPLETENESS: 30%, USAGE: 20%, DISCOVERABILITY: 10%
+                // We only have validity and completeness, so normalize to their combined weight (70%)
                 let trustScore = null;
                 if (quality && (quality.validity > 0 || quality.completeness > 0)) {
-                  const avgScore = (quality.validity + quality.completeness) / 2;
-                  trustScore = { score: avgScore };
+                  // Weighted score: (0.40 * validity + 0.30 * completeness) / 0.70
+                  // This normalizes to 0-100 scale comparable to full trust score
+                  const weightedScore = (quality.validity * 0.40 + quality.completeness * 0.30) / 0.70;
+                  trustScore = { score: weightedScore };
                 }
 
                 return {

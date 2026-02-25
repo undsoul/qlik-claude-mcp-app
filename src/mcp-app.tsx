@@ -4251,10 +4251,13 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                   else if (diffDays < 365) freshness = `${diffDays === 1 ? '1 day' : diffDays + ' days'} ago`;
                   else freshness = `${Math.floor(diffDays / 365)} year ago`;
                 }
-                // Calculate trust score from quality data if not provided
+                // Calculate trust score using Qlik formula if not provided
+                // VALIDITY: 40%, COMPLETENESS: 30% (normalized to 70% total)
                 const validity = ds.quality?.validity ?? 0;
                 const completeness = ds.quality?.completeness ?? 0;
-                const trustVal = ds.trustScore?.score ?? (validity > 0 || completeness > 0 ? (validity + completeness) / 2 : null);
+                const trustVal = ds.trustScore?.score ?? (validity > 0 || completeness > 0
+                  ? (validity * 0.40 + completeness * 0.30) / 0.70
+                  : null);
                 const qualityPct = validity || completeness;
 
                 return (
