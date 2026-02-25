@@ -1566,11 +1566,10 @@ class QlikClient {
           Promise.all(
             product.datasetIds.slice(0, 10).map(async (datasetId: string) => {
               try {
-                // Fetch dataset details, quality, and trust score in parallel
-                const [ds, qualityResult, trustScoreResult] = await Promise.all([
+                // Fetch dataset details and quality in parallel
+                const [ds, qualityResult] = await Promise.all([
                   this.fetch(`/data-sets/${datasetId}`),
                   this.fetch(`/data-qualities/global-results?datasetId=${datasetId}`).catch(() => null),
-                  this.fetch(`/data-governance/data-sets/${datasetId}`).catch(() => null),
                 ]);
 
                 // Resolve space name
@@ -1599,21 +1598,11 @@ class QlikClient {
                   };
                 }
 
-                // Extract trust score - try multiple sources
-                // 1. From data-governance dataset response
-                let trustScore = trustScoreResult?.trustScore || null;
-
-                // 2. If not found, try dedicated trust-score endpoint
-                if (!trustScore) {
-                  try {
-                    const trustResult = await this.fetch(`/data-governance/trust-scores?datasetId=${datasetId}`);
-                    console.error(`[Dataset TrustScore Endpoint] ${datasetId}:`, JSON.stringify(trustResult, null, 2)?.slice(0, 500));
-                    if (trustResult?.data?.[0]?.score) {
-                      trustScore = { score: trustResult.data[0].score };
-                    }
-                  } catch {
-                    // Trust score endpoint not available
-                  }
+                // Calculate trust score from quality data (validity + completeness average)
+                let trustScore = null;
+                if (quality && (quality.validity > 0 || quality.completeness > 0)) {
+                  const avgScore = (quality.validity + quality.completeness) / 2;
+                  trustScore = { score: avgScore };
                 }
 
                 return {

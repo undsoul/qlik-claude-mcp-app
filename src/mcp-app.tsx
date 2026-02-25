@@ -4251,8 +4251,11 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                   else if (diffDays < 365) freshness = `${diffDays === 1 ? '1 day' : diffDays + ' days'} ago`;
                   else freshness = `${Math.floor(diffDays / 365)} year ago`;
                 }
-                const trustVal = ds.trustScore?.score;
-                const qualityPct = ds.quality?.validity ?? ds.quality?.completeness ?? 0;
+                // Calculate trust score from quality data if not provided
+                const validity = ds.quality?.validity ?? 0;
+                const completeness = ds.quality?.completeness ?? 0;
+                const trustVal = ds.trustScore?.score ?? (validity > 0 || completeness > 0 ? (validity + completeness) / 2 : null);
+                const qualityPct = validity || completeness;
 
                 return (
                   <div key={idx} style={{
@@ -4271,17 +4274,15 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                     <span style={{ color: 'var(--text-secondary)' }}>
                       {trustVal ? `${(trustVal / 20).toFixed(1)}/5` : '-'}
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
-                      <div style={{ display: 'flex', gap: '2px' }}>
-                        {[...Array(5)].map((_, i) => (
-                          <div key={i} style={{
-                            width: '12px',
-                            height: '10px',
-                            background: i < Math.floor(qualityPct / 20) ? '#4CAF50' : 'var(--border-color)',
-                            borderRadius: '2px'
-                          }} />
-                        ))}
-                      </div>
+                    <div style={{ display: 'flex', gap: '2px', width: '68px' }}>
+                      {[...Array(5)].map((_, i) => (
+                        <div key={i} style={{
+                          width: '12px',
+                          height: '10px',
+                          background: i < Math.floor(qualityPct / 20) ? '#4CAF50' : 'var(--border-color)',
+                          borderRadius: '2px'
+                        }} />
+                      ))}
                     </div>
                     <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{freshness}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
