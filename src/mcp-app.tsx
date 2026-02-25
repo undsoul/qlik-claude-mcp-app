@@ -4228,6 +4228,7 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
       productId: data.id,
       productName: data.name,
       spaceId: data.spaceId,
+      itemId: data.itemId || data.id,
     });
   };
 
@@ -4235,30 +4236,29 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
     <Card header={{ label: "Data Product", title: data.name || "Product Details", gradient: "purple" }}>
       <div className="data-product-detail">
         {/* Action buttons */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          {callTool && (
-            <button
-              className="action-btn primary"
-              onClick={handleCreateApp}
-              disabled={creating}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '10px 16px',
-                background: creating ? 'var(--bg-secondary)' : 'var(--accent-green)',
-                color: creating ? 'var(--text-secondary)' : 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: creating ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {creating ? <Loader2 size={16} className="spinning" /> : <AppWindow size={16} />}
-              {creating ? 'Creating...' : 'Create Application'}
-            </button>
-          )}
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <button
+            className="action-btn primary"
+            onClick={handleCreateApp}
+            disabled={creating || !callTool}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '10px 20px',
+              background: creating ? '#888' : 'linear-gradient(135deg, #4CAF50, #45a049)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: creating ? 'wait' : 'pointer',
+              boxShadow: '0 2px 6px rgba(76, 175, 80, 0.3)',
+            }}
+          >
+            {creating ? <Loader2 size={16} className="spinning" /> : <Plus size={16} />}
+            {creating ? 'Creating...' : 'Create Application'}
+          </button>
           {openLink && data.tenantUrl && (
             <button
               onClick={() => openLink(`${data.tenantUrl}/catalog?type=dataproduct&spaceId=${data.spaceId || ''}`)}
@@ -4266,12 +4266,12 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '10px 16px',
+                padding: '10px 20px',
                 background: 'var(--bg-secondary)',
                 color: 'var(--text-primary)',
                 border: '1px solid var(--border-color)',
                 borderRadius: '8px',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 500,
                 cursor: 'pointer',
               }}
