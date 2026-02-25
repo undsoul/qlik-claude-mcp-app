@@ -569,31 +569,53 @@ class QlikClient {
       this.fetch(`/ml/experiments/${experimentId}/versions`).catch(() => ({ data: [] })),
     ]);
 
-    // Extract models with metrics
-    const models = (modelsResult.data || []).map((m: any) => ({
-      id: m.id,
-      algorithm: m.algorithm,
-      status: m.status,
-      isTopModel: m.isTopModel,
-      // Training metrics
-      trainMetrics: m.trainMetrics || {},
-      // Test metrics (actual performance)
-      testMetrics: m.testMetrics || {},
-      // Dropped features (data quality issues)
-      droppedFeatures: m.droppedFeatures || [],
-      createdAt: m.createdAt,
-    }));
+    // Extract models with metrics - handle nested API structure
+    const models = (modelsResult.data || []).map((m: any) => {
+      // API returns: { type, id, attributes: { metrics: { binary: {...} } } }
+      const attrs = m.attributes || m;
+      const rawMetrics = attrs.metrics?.binary || attrs.metrics?.regression || attrs.metrics?.multiclass || {};
 
-    // Extract versions
-    const versions = (versionsResult.data || []).map((v: any) => ({
-      id: v.id,
-      status: v.status,
-      topModelId: v.topModelId,
-      featuresList: v.featuresList || [],
-      targetFeature: v.targetFeature,
-      experimentType: v.experimentType,
-      createdAt: v.createdAt,
-    }));
+      // Extract test metrics (fields ending with "Test") and train metrics
+      const testMetrics: Record<string, number> = {};
+      const trainMetrics: Record<string, number> = {};
+
+      for (const [key, value] of Object.entries(rawMetrics)) {
+        if (typeof value === 'number') {
+          if (key.endsWith('Test')) {
+            // accuracyTest -> accuracy
+            const cleanKey = key.replace(/Test$/, '');
+            testMetrics[cleanKey] = value;
+          } else {
+            trainMetrics[key] = value;
+          }
+        }
+      }
+
+      return {
+        id: m.id || attrs.id,
+        algorithm: attrs.algorithm || attrs.name,
+        status: attrs.status,
+        isTopModel: attrs.isTopModel,
+        trainMetrics,
+        testMetrics,
+        droppedFeatures: attrs.droppedFeatures || [],
+        createdAt: attrs.createdAt,
+      };
+    });
+
+    // Extract versions - handle nested API structure
+    const versions = (versionsResult.data || []).map((v: any) => {
+      const attrs = v.attributes || v;
+      return {
+        id: v.id || attrs.id,
+        status: attrs.status,
+        topModelId: attrs.topModelId,
+        featuresList: attrs.featuresList || [],
+        targetFeature: attrs.targetFeature,
+        experimentType: attrs.experimentType,
+        createdAt: attrs.createdAt,
+      };
+    });
 
     return {
       ...experiment,
