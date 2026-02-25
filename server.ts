@@ -32,7 +32,9 @@ class QlikClient {
   }
 
   async fetch(endpoint: string, options?: RequestInit): Promise<any> {
-    const url = endpoint.startsWith("http") ? endpoint : `${this.baseUrl}/api/v1${endpoint}`;
+    // Data governance APIs use /api/ instead of /api/v1/
+    const prefix = endpoint.startsWith("/data-governance") ? "/api" : "/api/v1";
+    const url = endpoint.startsWith("http") ? endpoint : `${this.baseUrl}${prefix}${endpoint}`;
     console.error(`[Qlik API] ${options?.method || 'GET'} ${url}`);
     const response = await fetch(url, {
       ...options,
