@@ -464,7 +464,7 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "glossary-detail": <GlossaryDetail data={data} callTool={callTool} />,
     "glossary-term": <GlossaryTermView data={data} />,
     "glossary-term-created": <ActionSuccess title="Term Created" data={data} />,
-    "data-products": <DataProductsGrid data={data} callTool={callTool} />,
+    "data-products": <DataProductsGrid data={data} sendAction={sendAction} />,
     "data-product-detail": <DataProductDetail data={data} />,
     "dataset-profile": <DatasetProfileView data={data} />,
     "bookmarks": <BookmarksView data={data} sendAction={sendAction} />,
@@ -4111,7 +4111,7 @@ function GlossaryTermView({ data }: { data: any }) {
 }
 
 // ============ DATA PRODUCTS ============
-function DataProductsGrid({ data, callTool }: { data: any; callTool: any }) {
+function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const products = data.products || [];
 
   return (
@@ -4125,7 +4125,7 @@ function DataProductsGrid({ data, callTool }: { data: any; callTool: any }) {
             <div
               key={product.id}
               className="data-product-card"
-              onClick={() => callTool("data_product_details", { productId: product.id })}
+              onClick={() => sendAction(`Show details for data product "${product.name}"`, { productId: product.id })}
             >
               <div className="data-product-icon">📦</div>
               <div className="data-product-info">
