@@ -1442,41 +1442,50 @@ class QlikClient {
   // ==================== DATA PRODUCTS ====================
 
   async getDataProducts(): Promise<any[]> {
-    // Fallback to items API since list endpoint doesn't exist in data-governance API
+    // Get items from Items API
     const items = await this.search(undefined, ["dataproduct"]);
     console.error(`[DataProducts] Found ${items.length} items from search`);
+
+    if (items.length > 0) {
+      console.error(`[DataProducts] First item sample:`, JSON.stringify(items[0], null, 2).slice(0, 500));
+    }
+
+    // Collect unique space IDs for batch resolution
+    const spaceIds = [...new Set(items.map((item: any) => item.spaceId).filter(Boolean))] as string[];
+    const spaceMap: Record<string, { name: string; type: string }> = {};
+
+    // Resolve all spaces in parallel first
+    await Promise.all(
+      spaceIds.map(async (spaceId) => {
+        try {
+          const space = await this.fetch(`/spaces/${spaceId}`);
+          spaceMap[spaceId] = { name: space.name, type: space.type };
+        } catch (e: any) {
+          console.error(`[DataProducts] Failed to resolve space ${spaceId}: ${e.message}`);
+        }
+      })
+    );
+    console.error(`[DataProducts] Resolved ${Object.keys(spaceMap).length} spaces:`, spaceMap);
 
     // Fetch detailed info from data-governance API for each product
     const enrichedProducts = await Promise.all(
       items.map(async (item: any) => {
         const productId = item.resourceId || item.id;
+        const spaceInfo = spaceMap[item.spaceId] || null;
+
         try {
           // Get full details from data-governance API
           const product = await this.fetch(`/data-governance/data-products/${productId}`);
-          console.error(`[DataProducts] Product ${productId}: datasetIds=${(product.datasetIds || []).length}, activated=${product.activated}, spaceId=${product.spaceId}`);
-
-          // Resolve space name and type
-          let spaceName = null;
-          let spaceType = null;
-          if (product.spaceId) {
-            try {
-              const space = await this.fetch(`/spaces/${product.spaceId}`);
-              spaceName = space.name;
-              spaceType = space.type; // "shared" or "managed"
-              console.error(`[DataProducts] Resolved space: ${spaceName} (${spaceType})`);
-            } catch (e: any) {
-              console.error(`[DataProducts] Failed to resolve space ${product.spaceId}: ${e.message}`);
-            }
-          }
+          console.error(`[DataProducts] Product ${productId}: datasetIds=${(product.datasetIds || []).length}, activated=${product.activated}`);
 
           return {
             id: productId,
             itemId: item.id,
             name: product.name || item.name,
             description: product.description || item.description,
-            spaceId: product.spaceId,
-            spaceName,
-            spaceType,
+            spaceId: product.spaceId || item.spaceId,
+            spaceName: spaceInfo?.name || null,
+            spaceType: spaceInfo?.type || null,
             activated: product.activated || false,
             datasetIds: product.datasetIds || [],
             dataAssetCount: (product.datasetIds || []).length,
@@ -1492,8 +1501,8 @@ class QlikClient {
             name: item.name,
             description: item.description,
             spaceId: item.spaceId,
-            spaceName: null,
-            spaceType: null,
+            spaceName: spaceInfo?.name || null,
+            spaceType: spaceInfo?.type || null,
             activated: false,
             datasetIds: [],
             dataAssetCount: 0,
