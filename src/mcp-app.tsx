@@ -4223,11 +4223,11 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
               {/* Table Header */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: '2fr 0.8fr 1fr 0.9fr 1fr',
-                gap: '6px',
-                padding: '8px 10px',
+                gridTemplateColumns: '2fr 0.7fr 0.9fr 0.8fr 1fr',
+                gap: '8px',
+                padding: '8px 12px',
                 background: 'var(--bg-secondary)',
-                fontSize: '10px',
+                fontSize: '11px',
                 fontWeight: 600,
                 color: 'var(--text-secondary)'
               }}>
@@ -4263,21 +4263,21 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                 return (
                   <div key={idx} style={{
                     display: 'grid',
-                    gridTemplateColumns: '2fr 0.8fr 1fr 0.9fr 1fr',
-                    gap: '6px',
-                    padding: '6px 10px',
+                    gridTemplateColumns: '2fr 0.7fr 0.9fr 0.8fr 1fr',
+                    gap: '8px',
+                    padding: '8px 12px',
                     borderTop: '1px solid var(--border-color)',
-                    fontSize: '10px',
+                    fontSize: '12px',
                     alignItems: 'center'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <FileText size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ds.name || 'Dataset'}</span>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                      <FileText size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0, marginTop: '2px' }} />
+                      <span style={{ fontWeight: 500, lineHeight: 1.3 }}>{ds.name || 'Dataset'}</span>
                     </div>
                     <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
                       {trustVal ? `${(trustVal / 20).toFixed(1)}/5` : '-'}
                     </span>
-                    <div style={{ display: 'flex', gap: '2px', width: '55px' }}>
+                    <div style={{ display: 'flex', gap: '2px', width: '58px' }}>
                       {[...Array(5)].map((_, i) => (
                         <div key={i} style={{
                           width: '10px',
@@ -4287,10 +4287,10 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                         }} />
                       ))}
                     </div>
-                    <span style={{ color: 'var(--text-secondary)' }}>{freshness}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                      <FolderOpen size={10} style={{ color: '#5b8def', flexShrink: 0 }} />
-                      <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{freshness}</span>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+                      <FolderOpen size={12} style={{ color: '#5b8def', flexShrink: 0, marginTop: '2px' }} />
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.3 }}>
                         {ds.spaceName || '-'}
                       </span>
                     </div>
