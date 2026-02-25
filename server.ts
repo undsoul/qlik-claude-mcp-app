@@ -562,27 +562,26 @@ class QlikClient {
   }
 
   async automlGetExperiment(experimentId: string): Promise<any> {
-    // Fetch experiment details, models, and versions in parallel
-    const [experiment, modelsResult, versionsResult] = await Promise.all([
+    // Fetch experiment details, models list, and versions in parallel
+    const [experiment, modelsListResult, versionsResult] = await Promise.all([
       this.fetch(`/ml/experiments/${experimentId}`),
       this.fetch(`/ml/experiments/${experimentId}/models`).catch(() => ({ data: [] })),
       this.fetch(`/ml/experiments/${experimentId}/versions`).catch(() => ({ data: [] })),
     ]);
 
-    // Extract models with metrics - handle nested API structure
-    const models = (modelsResult.data || []).map((m: any) => {
-      // API returns: { type, id, attributes: { metrics: { binary: {...} } } }
+    const modelsList = modelsListResult.data || [];
+
+    // Helper to extract metrics from a model object
+    const extractMetrics = (m: any) => {
       const attrs = m.attributes || m;
       const rawMetrics = attrs.metrics?.binary || attrs.metrics?.regression || attrs.metrics?.multiclass || {};
 
-      // Extract test metrics (fields ending with "Test") and train metrics
       const testMetrics: Record<string, number> = {};
       const trainMetrics: Record<string, number> = {};
 
       for (const [key, value] of Object.entries(rawMetrics)) {
         if (typeof value === 'number') {
           if (key.endsWith('Test')) {
-            // accuracyTest -> accuracy
             const cleanKey = key.replace(/Test$/, '');
             testMetrics[cleanKey] = value;
           } else {
@@ -601,7 +600,30 @@ class QlikClient {
         droppedFeatures: attrs.droppedFeatures || [],
         createdAt: attrs.createdAt,
       };
-    });
+    };
+
+    // First pass: extract from list
+    let models = modelsList.map(extractMetrics);
+
+    // Check if we got metrics - if not, fetch individual models (first 5 only to avoid rate limits)
+    const hasMetrics = models.some((m: any) => Object.keys(m.testMetrics).length > 0);
+    if (!hasMetrics && modelsList.length > 0) {
+      console.error(`[AutoML] List didn't include metrics, fetching individual models...`);
+      const modelIds = modelsList.slice(0, 5).map((m: any) => m.id || m.attributes?.id);
+      const individualModels = await Promise.all(
+        modelIds.map((id: string) =>
+          this.fetch(`/ml/experiments/${experimentId}/models/${id}`).catch(() => null)
+        )
+      );
+
+      // Replace models with detailed data
+      models = individualModels
+        .filter((m: any) => m !== null)
+        .map((m: any) => {
+          const data = m.data || m;
+          return extractMetrics(data);
+        });
+    }
 
     // Extract versions - handle nested API structure
     const versions = (versionsResult.data || []).map((v: any) => {
@@ -2695,17 +2717,52 @@ If multiple experiments found, ask user which one they want.`,
 
   registerAppTool(server, "experiment", {
     title: "Get Experiment Details",
-    description: `Get ML experiment details.
+    description: `Get ML experiment details including model performance metrics.
 
-CRITICAL: You MUST use the exact experiment ID from the "experiments" tool results. Do NOT invent IDs.`,
+CRITICAL: You MUST use the exact experiment ID from the "experiments" tool results. Do NOT invent IDs.
+
+The response includes:
+- Experiment info (name, type, target feature)
+- All trained models with performance metrics (accuracy, AUC, precision, recall, F1)
+- Feature list and dropped features
+- Experiment versions
+
+IMPORTANT: After getting results, you MUST analyze and interpret the metrics for the user.`,
     inputSchema: {
       experimentId: z.string().describe("The exact experiment ID from experiments results"),
     },
     _meta: { ui: { resourceUri } },
   }, async (args): Promise<CallToolResult> => {
     const exp = await qlik.automlGetExperiment(args.experimentId);
+
+    // Extract name from nested structure
+    const attrs = exp.data?.attributes || exp.attributes || exp;
+    const name = attrs.name || "Unknown Experiment";
+    const expType = attrs.experimentType || "unknown";
+    const target = attrs.targetFeature || "";
+
+    // Build text summary with metrics for Claude to interpret
+    const models = exp.models || [];
+    const topModel = models.find((m: any) => m.isTopModel) || models[0];
+
+    let textSummary = `Experiment: ${name}\nType: ${expType}`;
+    if (target) textSummary += `\nTarget: ${target}`;
+    textSummary += `\nModels trained: ${models.length}`;
+
+    if (topModel && Object.keys(topModel.testMetrics || {}).length > 0) {
+      const tm = topModel.testMetrics;
+      textSummary += `\n\nTop Model (${topModel.algorithm || 'Best'}):`;
+      if (tm.accuracy !== undefined) textSummary += `\n- Accuracy: ${(tm.accuracy * 100).toFixed(2)}%`;
+      if (tm.auc !== undefined) textSummary += `\n- AUC: ${(tm.auc * 100).toFixed(2)}%`;
+      if (tm.precision !== undefined) textSummary += `\n- Precision: ${(tm.precision * 100).toFixed(2)}%`;
+      if (tm.recall !== undefined) textSummary += `\n- Recall: ${(tm.recall * 100).toFixed(2)}%`;
+      if (tm.f1 !== undefined) textSummary += `\n- F1 Score: ${(tm.f1 * 100).toFixed(2)}%`;
+    } else {
+      textSummary += `\n\nNote: Model metrics not available in API response. This may indicate the experiment is still training or metrics require direct Qlik Sense access.`;
+    }
+
     return {
-      content: [{ type: "text", text: `Experiment: ${exp.name}` }],
+      content: [{ type: "text", text: textSummary }],
       structuredContent: { type: "experiment-detail", ...exp, tenantUrl: TENANT_URL },
     };
   });
