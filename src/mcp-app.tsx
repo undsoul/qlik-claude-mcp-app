@@ -4117,22 +4117,36 @@ function DataProductsGrid({ data, callTool }: { data: any; callTool: any }) {
   return (
     <Card header={{ label: "Data Products", title: `${products.length} Products`, gradient: "purple" }}>
       <div className="data-products-list">
-        {products.map((product: any) => (
-          <div
-            key={product.id}
-            className="data-product-card"
-            onClick={() => callTool("data_product_details", { productId: product.id })}
-          >
-            <div className="data-product-icon">📦</div>
-            <div className="data-product-info">
-              <div className="data-product-name">{product.name}</div>
-              {product.description && <div className="data-product-desc">{product.description}</div>}
-              <div className="data-product-meta">
-                {product.updatedAt && <span>Updated: {new Date(product.updatedAt).toLocaleDateString()}</span>}
+        {products.map((product: any) => {
+          const trustScore = product.trustScore?.score;
+          const isActivated = product.activated;
+
+          return (
+            <div
+              key={product.id}
+              className="data-product-card"
+              onClick={() => callTool("data_product_details", { productId: product.id })}
+            >
+              <div className="data-product-icon">📦</div>
+              <div className="data-product-info">
+                <div className="data-product-name">
+                  {product.name}
+                  {isActivated && <span className="results-badge green" style={{ marginLeft: '8px', fontSize: '10px' }}>Active</span>}
+                </div>
+                {product.description && <div className="data-product-desc">{product.description}</div>}
+                <div className="data-product-meta">
+                  {trustScore !== undefined && (
+                    <span style={{ color: trustScore >= 0.8 ? 'var(--accent-green)' : trustScore >= 0.5 ? 'orange' : 'red' }}>
+                      Trust: {(trustScore * 100).toFixed(0)}%
+                    </span>
+                  )}
+                  {product.datasetIds?.length > 0 && <span>{product.datasetIds.length} datasets</span>}
+                  {product.updatedAt && <span>Updated: {new Date(product.updatedAt).toLocaleDateString()}</span>}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {products.length === 0 && <div className="empty-state">No data products found</div>}
       </div>
     </Card>
@@ -4140,16 +4154,180 @@ function DataProductsGrid({ data, callTool }: { data: any; callTool: any }) {
 }
 
 function DataProductDetail({ data }: { data: any }) {
+  const trustScore = data.trustScore?.score;
+  const trustDimensions = data.trustScore?.dimensions || [];
+  const quality = data.quality || {};
+  const keyContacts = data.keyContacts || [];
+  const datasetIds = data.datasetIds || [];
+  const glossaryIds = data.glossaryIds || [];
+  const tags = data.tags || [];
+  const changelog = data.changelog || [];
+
   return (
     <Card header={{ label: "Data Product", title: data.name || "Product Details", gradient: "purple" }}>
       <div className="data-product-detail">
-        {data.description && <p className="product-description">{data.description}</p>}
-        <div className="product-meta-grid">
+        {/* Status badges */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+          {data.activated && <span className="results-badge green">Activated</span>}
+          {!data.activated && <span className="results-badge">Draft</span>}
+          {data.qri && <span className="results-badge" style={{ fontFamily: 'monospace', fontSize: '10px' }}>{data.qri}</span>}
+        </div>
+
+        {/* Description */}
+        {data.description && <p className="product-description" style={{ marginBottom: '16px' }}>{data.description}</p>}
+
+        {/* Trust Score */}
+        {trustScore !== undefined && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Trust Score
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                fontSize: '24px',
+                fontWeight: 700,
+                color: trustScore >= 0.8 ? 'var(--accent-green)' : trustScore >= 0.5 ? 'orange' : 'red'
+              }}>
+                {(trustScore * 100).toFixed(0)}%
+              </div>
+              {trustDimensions.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {trustDimensions.map((dim: any, idx: number) => (
+                    <span key={idx} style={{
+                      fontSize: '11px',
+                      padding: '4px 8px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '4px'
+                    }}>
+                      {dim.name}: {(dim.score * 100).toFixed(0)}%
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Quality Metrics */}
+        {(quality.validity !== undefined || quality.completeness !== undefined) && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Quality Metrics
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
+              {quality.validity !== undefined && (
+                <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                    {(quality.validity * 100).toFixed(0)}%
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Validity</div>
+                </div>
+              )}
+              {quality.completeness !== undefined && (
+                <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                    {(quality.completeness * 100).toFixed(0)}%
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Completeness</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Key Contacts */}
+        {keyContacts.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Key Contacts
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {keyContacts.map((contact: any, idx: number) => (
+                <span key={idx} style={{
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '4px'
+                }}>
+                  {contact.role}: {contact.userId}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Datasets */}
+        {datasetIds.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Datasets ({datasetIds.length})
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {datasetIds.slice(0, 5).map((id: string, idx: number) => (
+                <span key={idx} style={{
+                  fontSize: '10px',
+                  padding: '4px 8px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '4px',
+                  fontFamily: 'monospace'
+                }}>
+                  {id.length > 20 ? id.slice(0, 20) + '...' : id}
+                </span>
+              ))}
+              {datasetIds.length > 5 && (
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>+{datasetIds.length - 5} more</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tags */}
+        {tags.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Tags
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {tags.map((tag: string, idx: number) => (
+                <span key={idx} className="results-badge">{tag}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Metadata */}
+        <div className="product-meta-grid" style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
           {data.ownerId && <div className="meta-item"><strong>Owner:</strong> {data.ownerId}</div>}
           {data.spaceId && <div className="meta-item"><strong>Space:</strong> {data.spaceId}</div>}
           {data.createdAt && <div className="meta-item"><strong>Created:</strong> {new Date(data.createdAt).toLocaleDateString()}</div>}
           {data.updatedAt && <div className="meta-item"><strong>Updated:</strong> {new Date(data.updatedAt).toLocaleDateString()}</div>}
+          {data.activatedAt && <div className="meta-item"><strong>Activated:</strong> {new Date(data.activatedAt).toLocaleDateString()}</div>}
+          {glossaryIds.length > 0 && <div className="meta-item"><strong>Glossaries:</strong> {glossaryIds.length}</div>}
         </div>
+
+        {/* Changelog */}
+        {changelog.length > 0 && (
+          <div style={{ marginTop: '16px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+              Recent Changes
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {changelog.slice(0, 5).map((entry: any, idx: number) => (
+                <div key={idx} style={{
+                  fontSize: '11px',
+                  padding: '8px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between'
+                }}>
+                  <span>{entry.action || entry.type}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{entry.timestamp ? new Date(entry.timestamp).toLocaleString() : ''}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Card>
   );

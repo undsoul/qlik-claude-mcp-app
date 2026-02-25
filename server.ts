@@ -1418,19 +1418,33 @@ class QlikClient {
   // ==================== DATA PRODUCTS ====================
 
   async getDataProducts(): Promise<any[]> {
-    // Data products are available via items API with resourceType filter
-    return this.search(undefined, ["dataproduct"]);
+    // Use data-governance API for full data product information
+    try {
+      const result = await this.fetch(`/data-governance/data-products`);
+      return result.data || [];
+    } catch {
+      // Fallback: items API returns minimal info
+      return this.search(undefined, ["dataproduct"]);
+    }
   }
 
   async getDataProduct(productId: string): Promise<any> {
-    // Try data governance API first, fallback to items API
+    // Use data-governance API for full details
+    const product = await this.fetch(`/data-governance/data-products/${productId}`);
+
+    // Also fetch changelog for modification history
+    let changelog: any[] = [];
     try {
-      return await this.fetch(`/data-products/${productId}`);
+      const changelogResult = await this.fetch(`/data-governance/data-products/${productId}/changelogs`);
+      changelog = changelogResult.data || [];
     } catch {
-      // Fallback: get from items
-      const items = await this.search(undefined, ["dataproduct"]);
-      return items.find((item: any) => item.resourceId === productId || item.id === productId);
+      // Changelog might not be available
     }
+
+    return {
+      ...product,
+      changelog,
+    };
   }
 
   // ==================== DATASET ENHANCEMENTS ====================
