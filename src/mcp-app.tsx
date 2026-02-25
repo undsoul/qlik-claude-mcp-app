@@ -4271,7 +4271,7 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                     <span style={{ color: 'var(--text-secondary)' }}>
                       {trustVal ? `${(trustVal / 20).toFixed(1)}/5` : '-'}
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
                       <div style={{ display: 'flex', gap: '2px' }}>
                         {[...Array(5)].map((_, i) => (
                           <div key={i} style={{

@@ -1599,9 +1599,22 @@ class QlikClient {
                   };
                 }
 
-                // Extract trust score from data-governance response
-                console.error(`[Dataset TrustScore] ${datasetId}:`, JSON.stringify(trustScoreResult, null, 2)?.slice(0, 500));
-                const trustScore = trustScoreResult?.trustScore || null;
+                // Extract trust score - try multiple sources
+                // 1. From data-governance dataset response
+                let trustScore = trustScoreResult?.trustScore || null;
+
+                // 2. If not found, try dedicated trust-score endpoint
+                if (!trustScore) {
+                  try {
+                    const trustResult = await this.fetch(`/data-governance/trust-scores?datasetId=${datasetId}`);
+                    console.error(`[Dataset TrustScore Endpoint] ${datasetId}:`, JSON.stringify(trustResult, null, 2)?.slice(0, 500));
+                    if (trustResult?.data?.[0]?.score) {
+                      trustScore = { score: trustResult.data[0].score };
+                    }
+                  } catch {
+                    // Trust score endpoint not available
+                  }
+                }
 
                 return {
                   id: datasetId,
