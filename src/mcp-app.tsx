@@ -4435,7 +4435,7 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
           {/* Open Data Product in Qlik Cloud */}
           {openLink && data.tenantUrl && (
             <button
-              onClick={() => openLink(`${data.tenantUrl}/catalog/data-product/${data.id}`)}
+              onClick={() => openLink(`${data.tenantUrl}/data-product/${data.id}`)}
               style={{
                 width: '100%',
                 display: 'flex',
