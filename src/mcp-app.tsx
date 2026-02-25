@@ -4304,44 +4304,7 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
 
         {/* RIGHT COLUMN - Sidebar */}
         <div style={{ width: '200px', flexShrink: 0 }}>
-          {/* Create App Button */}
-          <button
-            onClick={handleCreateApp}
-            disabled={creating || !callTool}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              padding: '10px 16px',
-              marginBottom: '16px',
-              background: creating ? '#888' : 'linear-gradient(135deg, #4CAF50, #45a049)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: creating ? 'wait' : 'pointer',
-              boxShadow: '0 2px 6px rgba(76, 175, 80, 0.3)',
-            }}
-          >
-            {creating ? <Loader2 size={14} className="spinning" /> : <Plus size={14} />}
-            {creating ? 'Creating...' : 'Create App'}
-          </button>
-
-          {/* API Endpoints */}
-          {data.apiConsumableDatasetIds?.length > 0 && (
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>API endpoints</div>
-              <div style={{ fontSize: '13px', fontWeight: 500 }}>
-                <Database size={14} style={{ marginRight: '4px' }} />
-                {data.apiConsumableDatasetIds.length}
-              </div>
-            </div>
-          )}
-
-          {/* Trust Score */}
+          {/* Trust Score - TOP */}
           {trustScore !== undefined && (
             <div style={{ marginBottom: '16px' }}>
               <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Qlik Trust Score</div>
@@ -4367,12 +4330,23 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
             </div>
           )}
 
+          {/* API Endpoints */}
+          {data.apiConsumableDatasetIds?.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>API endpoints</div>
+              <div style={{ fontSize: '13px', fontWeight: 500 }}>
+                <Database size={14} style={{ marginRight: '4px' }} />
+                {data.apiConsumableDatasetIds.length}
+              </div>
+            </div>
+          )}
+
           {/* Space */}
           {(data.spaceName || data.spaceId) && (
             <div style={{ marginBottom: '16px' }}>
               <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Space</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: '#5b8def', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: data.spaceType === 'managed' ? '#e91e63' : '#5b8def', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <FolderOpen size={12} color="white" />
                 </div>
                 {data.spaceName || data.spaceId?.slice(0, 12) + '...'}
@@ -4428,10 +4402,36 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
             </div>
           )}
 
-          {/* Open in Qlik Cloud */}
+          {/* Create App Button */}
+          <button
+            onClick={handleCreateApp}
+            disabled={creating || !callTool}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '10px 16px',
+              marginTop: '16px',
+              background: creating ? '#888' : 'linear-gradient(135deg, #4CAF50, #45a049)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: creating ? 'wait' : 'pointer',
+              boxShadow: '0 2px 6px rgba(76, 175, 80, 0.3)',
+            }}
+          >
+            {creating ? <Loader2 size={14} className="spinning" /> : <Plus size={14} />}
+            {creating ? 'Creating...' : 'Create App'}
+          </button>
+
+          {/* Open Data Product in Qlik Cloud */}
           {openLink && data.tenantUrl && (
             <button
-              onClick={() => openLink(`${data.tenantUrl}/catalog?type=dataproduct`)}
+              onClick={() => openLink(`${data.tenantUrl}/catalog/data-product/${data.id}`)}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -4439,7 +4439,7 @@ function DataProductDetail({ data, callTool, openLink }: { data: any; callTool?:
                 justifyContent: 'center',
                 gap: '6px',
                 padding: '8px 12px',
-                marginTop: '12px',
+                marginTop: '8px',
                 background: 'var(--bg-secondary)',
                 color: 'var(--text-primary)',
                 border: '1px solid var(--border-color)',
