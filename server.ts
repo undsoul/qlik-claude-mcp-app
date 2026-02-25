@@ -1440,18 +1440,20 @@ class QlikClient {
   // ==================== DATA PRODUCTS ====================
 
   async getDataProducts(): Promise<any[]> {
-    // Use data-governance API for full data product information
-    try {
-      const result = await this.fetch(`/data-governance/data-products`);
-      return result.data || [];
-    } catch {
-      // Fallback: items API returns minimal info
-      return this.search(undefined, ["dataproduct"]);
-    }
+    // Fallback to items API since list endpoint doesn't exist in data-governance API
+    // The data-governance API only has GET/PATCH/DELETE for individual products by ID
+    const items = await this.search(undefined, ["dataproduct"]);
+
+    // Map items to use resourceId as id (data-governance API expects resourceId)
+    return items.map((item: any) => ({
+      ...item,
+      id: item.resourceId || item.id, // Use resourceId for data-governance API compatibility
+      itemId: item.id, // Keep original item ID for reference
+    }));
   }
 
   async getDataProduct(productId: string): Promise<any> {
-    // Use data-governance API for full details
+    // Try data-governance API first for full details
     try {
       const product = await this.fetch(`/data-governance/data-products/${productId}`);
 
@@ -1469,16 +1471,48 @@ class QlikClient {
         changelog,
       };
     } catch (error: any) {
-      // If detail API fails (404), try to get basic info from list
-      console.error(`[DataProduct] Detail API failed for ${productId}, trying list fallback...`);
+      console.error(`[DataProduct] Detail API failed for ${productId}: ${error.message}`);
+
+      // Try items API for more details
+      try {
+        // Try direct item fetch
+        const item = await this.fetch(`/items/${productId}`);
+        if (item) {
+          return {
+            ...item,
+            id: item.resourceId || item.id,
+            _source: "items-api",
+            _note: "Data from items API - governance API unavailable",
+          };
+        }
+      } catch {
+        // Items direct fetch failed, try by resourceId
+        try {
+          const result = await this.fetch(`/items?resourceId=${productId}&resourceType=dataproduct&limit=1`);
+          if (result.data?.[0]) {
+            return {
+              ...result.data[0],
+              id: productId,
+              _source: "items-api",
+              _note: "Data from items API - governance API unavailable",
+            };
+          }
+        } catch {
+          // Continue to list fallback
+        }
+      }
+
+      // Last resort: find in full list
       const products = await this.getDataProducts();
-      const product = products.find((p: any) => p.id === productId);
+      const product = products.find((p: any) => p.id === productId || p.resourceId === productId);
       if (product) {
         return {
           ...product,
-          _note: "Limited data - detail API unavailable for this product",
+          _source: "items-api-list",
+          _note: "Limited data from list - governance API unavailable for this product",
         };
       }
+
       throw error;
     }
   }
