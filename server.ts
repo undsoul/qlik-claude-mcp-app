@@ -1443,43 +1443,57 @@ class QlikClient {
 
   async getDataProducts(): Promise<any[]> {
     // Fallback to items API since list endpoint doesn't exist in data-governance API
-    // The data-governance API only has GET/PATCH/DELETE for individual products by ID
     const items = await this.search(undefined, ["dataproduct"]);
 
-    console.error(`[DataProducts] Found ${items.length} items`);
-    if (items.length > 0) {
-      console.error(`[DataProducts] First item keys:`, Object.keys(items[0]));
-      console.error(`[DataProducts] First item spaceId:`, items[0].spaceId);
-    }
-
-    // Get unique space IDs and resolve names
-    const spaceIds = [...new Set(items.map((item: any) => item.spaceId).filter(Boolean))] as string[];
-    console.error(`[DataProducts] Unique spaceIds:`, spaceIds);
-
-    const spaceMap: Record<string, string> = {};
-
-    // Fetch space names in parallel
-    await Promise.all(
-      spaceIds.map(async (spaceId) => {
+    // Fetch detailed info from data-governance API for each product
+    const enrichedProducts = await Promise.all(
+      items.map(async (item: any) => {
+        const productId = item.resourceId || item.id;
         try {
-          const space = await this.fetch(`/spaces/${spaceId}`);
-          spaceMap[spaceId] = space.name;
-          console.error(`[DataProducts] Resolved space ${spaceId} -> ${space.name}`);
-        } catch (e: any) {
-          console.error(`[DataProducts] Failed to resolve space ${spaceId}:`, e.message);
+          // Get full details from data-governance API
+          const product = await this.fetch(`/data-governance/data-products/${productId}`);
+
+          // Resolve space name
+          let spaceName = null;
+          if (product.spaceId) {
+            try {
+              const space = await this.fetch(`/spaces/${product.spaceId}`);
+              spaceName = space.name;
+            } catch {}
+          }
+
+          return {
+            id: productId,
+            itemId: item.id,
+            name: product.name || item.name,
+            description: product.description || item.description,
+            spaceId: product.spaceId,
+            spaceName,
+            activated: product.activated || false,
+            datasetIds: product.datasetIds || [],
+            dataAssetCount: (product.datasetIds || []).length,
+            updatedAt: product.updatedAt || item.updatedAt,
+            trustScore: product.trustScore,
+          };
+        } catch {
+          // Fallback to items data if data-governance API fails
+          return {
+            id: productId,
+            itemId: item.id,
+            name: item.name,
+            description: item.description,
+            spaceId: item.spaceId,
+            spaceName: null,
+            activated: false,
+            datasetIds: [],
+            dataAssetCount: 0,
+            updatedAt: item.updatedAt,
+          };
         }
       })
     );
 
-    console.error(`[DataProducts] SpaceMap:`, spaceMap);
-
-    // Map items to use resourceId as id and include space name
-    return items.map((item: any) => ({
-      ...item,
-      id: item.resourceId || item.id, // Use resourceId for data-governance API compatibility
-      itemId: item.id, // Keep original item ID for reference
-      spaceName: spaceMap[item.spaceId] || null,
-    }));
+    return enrichedProducts;
   }
 
   async getDataProduct(productId: string): Promise<any> {

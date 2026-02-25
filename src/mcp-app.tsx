@@ -4120,6 +4120,7 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
       <div className="data-products-list">
         {products.map((product: any) => {
           const isActivated = product.activated;
+          const dataAssetCount = product.dataAssetCount || product.datasetIds?.length || 0;
 
           return (
             <div
@@ -4129,33 +4130,46 @@ function DataProductsGrid({ data, sendAction }: { data: any; sendAction: (action
             >
               <div className="data-product-icon">📦</div>
               <div className="data-product-info">
-                <div className="data-product-name">
-                  {product.name}
-                  {isActivated && <span className="results-badge green" style={{ marginLeft: '8px', fontSize: '10px' }}>Active</span>}
-                </div>
+                <div className="data-product-name">{product.name}</div>
                 {product.description && <div className="data-product-desc">{product.description}</div>}
-                <div className="data-product-meta">
+                <div className="data-product-meta" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px', flexWrap: 'wrap' }}>
+                  {/* Data Asset Count */}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                    <FileText size={14} />
+                    {dataAssetCount}
+                  </span>
+
+                  {/* Space Name */}
                   {product.spaceName && (
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '4px',
                       padding: '2px 8px',
-                      background: 'var(--bg-secondary)',
+                      background: 'rgba(91, 141, 239, 0.15)',
+                      color: '#5b8def',
                       borderRadius: '4px',
-                      fontSize: '11px'
+                      fontSize: '11px',
+                      fontWeight: 500
                     }}>
                       <FolderOpen size={12} />
                       {product.spaceName}
                     </span>
                   )}
-                  {product.datasetIds?.length > 0 && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <Database size={12} />
-                      {product.datasetIds.length} datasets
+
+                  {/* Active Status */}
+                  {isActivated && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '12px',
+                      color: 'var(--text-primary)'
+                    }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#5b8def' }}></span>
+                      Active
                     </span>
                   )}
-                  {product.updatedAt && <span>Updated: {new Date(product.updatedAt).toLocaleDateString()}</span>}
                 </div>
               </div>
             </div>
