@@ -5248,9 +5248,9 @@ function AppCreatedFromDataProduct({ data, openLink, callTool }: { data: any; op
             </button>
           )}
 
-          {callTool && (
+          {callTool && data.productId && (
             <button
-              onClick={() => callTool("data_products")}
+              onClick={() => callTool("data_product_details", { productId: data.productId })}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -5268,7 +5268,7 @@ function AppCreatedFromDataProduct({ data, openLink, callTool }: { data: any; op
               }}
             >
               <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
-              Back to Data Products
+              Back to {data.productName || 'Data Product'}
             </button>
           )}
         </div>
