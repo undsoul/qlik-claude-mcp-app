@@ -457,7 +457,7 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "app-fields": <AppFieldsView data={data} />,
     "sheets": <SheetsGrid data={data} callTool={callTool} openLink={openLink} />,
     "sheet-detail": <SheetDetail data={data} openLink={openLink} />,
-    "field-values": <FieldValuesView data={data} callTool={callTool} />,
+    "field-values": <FieldValuesView data={data} sendAction={sendAction} />,
     "master-dimensions": <MasterDimensionsView data={data} />,
     "master-measures": <MasterMeasuresView data={data} />,
     "glossaries": <GlossariesGrid data={data} callTool={callTool} />,
@@ -3524,7 +3524,7 @@ function isDateField(fieldName: string, values: any[]): boolean {
 }
 
 // Date Picker Component for Date Fields
-function DateFieldPicker({ data, callTool }: { data: any; callTool: any }) {
+function DateFieldPicker({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const [mode, setMode] = useState<'single' | 'multiple' | 'range'>('range');
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
@@ -3678,7 +3678,16 @@ function DateFieldPicker({ data, callTool }: { data: any; callTool: any }) {
     }
 
     if (selectedValues.length > 0) {
-      callTool("select", { appId: data.appId, selections: [{ field: data.fieldName, values: selectedValues }] });
+      // Send message to Claude to apply selection
+      const valuesPreview = selectedValues.length <= 5
+        ? selectedValues.join(', ')
+        : `${selectedValues.slice(0, 3).join(', ')}... (${selectedValues.length} values)`;
+      sendAction(`Select ${valuesPreview} in field "${data.fieldName}"`, {
+        appId: data.appId,
+        field: data.fieldName,
+        values: selectedValues.join(','),
+        count: String(selectedValues.length)
+      });
     }
   };
 
@@ -3805,7 +3814,7 @@ function DateFieldPicker({ data, callTool }: { data: any; callTool: any }) {
   );
 }
 
-function FieldValuesView({ data, callTool }: { data: any; callTool: any }) {
+function FieldValuesView({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const values = data.values || [];
 
   // Check if this is a date field - check before useState so we can set default
@@ -3850,13 +3859,23 @@ function FieldValuesView({ data, callTool }: { data: any; callTool: any }) {
 
   const applySelection = () => {
     if (selectedValues.size > 0) {
-      callTool("select", { appId: data.appId, selections: [{ field: data.fieldName, values: Array.from(selectedValues) }] });
+      // Send message to Claude to apply selection
+      const valuesArray = Array.from(selectedValues);
+      const valuesPreview = valuesArray.length <= 5
+        ? valuesArray.join(', ')
+        : `${valuesArray.slice(0, 3).join(', ')}... (${valuesArray.length} values)`;
+      sendAction(`Select ${valuesPreview} in field "${data.fieldName}"`, {
+        appId: data.appId,
+        field: data.fieldName,
+        values: valuesArray.join(','),
+        count: String(valuesArray.length)
+      });
     }
   };
 
   // If date field and user wants date picker
   if (isDate && showDatePicker) {
-    return <DateFieldPicker data={data} callTool={callTool} />;
+    return <DateFieldPicker data={data} sendAction={sendAction} />;
   }
 
   return (
