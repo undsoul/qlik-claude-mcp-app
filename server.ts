@@ -1165,10 +1165,41 @@ class QlikClient {
           try {
             const obj = await app.getObject(cell.name);
             const objLayout = await obj.getLayout();
+
+            // Try multiple locations for title based on object type
+            let title =
+              objLayout.title ||                              // Most common
+              objLayout.qMeta?.title ||                       // Metadata title
+              objLayout.props?.title ||                       // Properties title
+              objLayout.props?.label ||                       // Button label
+              objLayout.qListObject?.qDimensionInfo?.qFallbackTitle || // Filter pane dimension
+              objLayout.qHyperCube?.qDimensionInfo?.[0]?.qFallbackTitle || // Chart dimension
+              objLayout.qHyperCube?.qMeasureInfo?.[0]?.qFallbackTitle ||   // Chart measure
+              objLayout.visualization ||                      // Visualization type as fallback
+              null;
+
+            // For action buttons, try to get label text
+            if (!title && cell.type === 'action-button') {
+              title = objLayout.props?.label || objLayout.label || 'Action Button';
+            }
+
+            // For filter panes, get dimension name
+            if (!title && cell.type === 'filterpane') {
+              const dimTitles = objLayout.qChildList?.qItems
+                ?.map((item: any) => item.qData?.title || item.qData?.qDimensionInfo?.qFallbackTitle)
+                .filter(Boolean);
+              title = dimTitles?.length ? `Filter: ${dimTitles.join(', ')}` : 'Filter Pane';
+            }
+
+            // For KPI, try to get measure name
+            if (!title && cell.type === 'kpi') {
+              title = objLayout.qHyperCube?.qMeasureInfo?.[0]?.qFallbackTitle || 'KPI';
+            }
+
             return {
               id: cell.name,
               type: cell.type,
-              title: objLayout.title || objLayout.qMeta?.title || cell.name,
+              title: title || cell.name,
               col: cell.col,
               row: cell.row,
               colspan: cell.colspan,
