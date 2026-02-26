@@ -7755,8 +7755,10 @@
 }
 
 .cal-day.in-range {
-  background: var(--accent-bg);
+  background: rgba(84, 168, 96, 0.4);
+  color: #1a5c24;
   border-radius: 0;
+  font-weight: 500;
 }
 
 .cal-day.in-range.selected {
