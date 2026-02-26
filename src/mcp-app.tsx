@@ -445,7 +445,7 @@ function ContentRouter({ data, callTool, sendAction, openLink }: { data: any; ca
     "chart": <ChartView data={data} />,
     "experiments": <ExperimentsGrid data={data} callTool={callTool} />,
     "experiment-detail": <ExperimentDetail data={data} openLink={openLink} />,
-    "deployments": <DeploymentsGrid data={data} />,
+    "deployments": <DeploymentsGrid data={data} sendAction={sendAction} />,
     "deployment-detail": <DeploymentDetail data={data} openLink={openLink} />,
     "lineage": <LineageView data={data} sendAction={sendAction} />,
     "app-lineage": <AppLineageView data={data} />,
@@ -2486,7 +2486,7 @@ function DeploymentDetail({ data, openLink }: { data: any; openLink?: (url: stri
   );
 }
 
-function DeploymentsGrid({ data }: { data: any }) {
+function DeploymentsGrid({ data, sendAction }: { data: any; sendAction: (action: string, context?: Record<string, string>) => void }) {
   const [filter, setFilter] = useState("");
   const allDeployments = data.deployments || [];
 
@@ -2498,6 +2498,10 @@ function DeploymentsGrid({ data }: { data: any }) {
   });
 
   const pagination = usePagination(filtered);
+
+  const handleClick = (dep: any) => {
+    sendAction(`Show deployment details for "${dep.name}"`, { deploymentId: dep.id });
+  };
 
   return (
     <div className="results-panel">
@@ -2518,10 +2522,11 @@ function DeploymentsGrid({ data }: { data: any }) {
       ) : (
         <div className="results-list">
           {pagination.items.map((dep: any) => (
-            <div key={dep.id} className="result-row static">
+            <div key={dep.id} className="result-row" onClick={() => handleClick(dep)}>
               <span className="result-icon"><Share2 size={16} /></span>
               <span className="result-name">{dep.name || "Unnamed"}</span>
               {dep.status && <span className="result-badge">{dep.status}</span>}
+              <ChevronRight size={14} className="result-arrow" />
             </div>
           ))}
         </div>
