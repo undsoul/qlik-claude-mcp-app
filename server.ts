@@ -61,6 +61,35 @@ class QlikClient {
 
   // ============ SEARCH ============
   async search(query?: string, types?: string[], spaceId?: string, sort = "-updatedAt"): Promise<any> {
+    // Try exact query first
+    let items = await this._searchItems(query, types, spaceId, sort);
+
+    // Smart fallback: if no results and query has 3+ words
+    if (items.length === 0 && query) {
+      const words = query.trim().split(/\s+/);
+      if (words.length >= 3) {
+        // Try progressively shorter queries
+        for (let i = words.length - 1; i >= 2 && items.length === 0; i--) {
+          // Try removing last word
+          const shorterQuery = words.slice(0, i).join(" ");
+          items = await this._searchItems(shorterQuery, types, spaceId, sort);
+          if (items.length > 0) break;
+
+          // Try removing first word
+          const altQuery = words.slice(words.length - i).join(" ");
+          if (altQuery !== shorterQuery) {
+            items = await this._searchItems(altQuery, types, spaceId, sort);
+            if (items.length > 0) break;
+          }
+        }
+      }
+    }
+
+    return items;
+  }
+
+  // Helper method for search with pagination
+  private async _searchItems(query?: string, types?: string[], spaceId?: string, sort = "-updatedAt"): Promise<any[]> {
     // Use cursor-based pagination to fetch all items
     const allItems: any[] = [];
     let cursor: string | null = null;
